@@ -17,7 +17,7 @@ test.describe('Secure Area page', () => {
        // await pm.page.pause()
     });
 
-    test('Login with valid credential', async()=>{
+    test('Login with valid credential @smoke', async()=>{
 
         await pm.securePage.assertLoggedInMessage('You logged into a secure area!');
         // get secure area message text 
