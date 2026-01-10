@@ -58,9 +58,21 @@ export default class SecurePage {
         return await this.action.getTextByText('Username', { exact: true });
     }
 
-     // Logout button just check if it exists
     async isLogoutButtonVisible() {
+        
+        // Logout button just check if it exists
         return await this.page.isVisible(this.logoutButtonSelector);
+    }
+
+    async isLogoutButtonEnabled() {
+        // Logout button just check if it is enabled
+        return await this.page.isEnabled(this.logoutButtonSelector);
+}
+
+    async getLogoutButtonText() {
+        
+        //get Logout button text 
+        return await this.action.getText(this.logoutButtonSelector);
     }
 
     async assertLoggedInMessage(passmessage) {
