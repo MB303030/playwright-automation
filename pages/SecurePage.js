@@ -15,11 +15,29 @@ export default class SecurePage {
 
         //Define selector for flash message element
         this.flashMessageSelector = '#flash';
+
+        //Define selector for main heading element
+        this.mainHeadingSelector = 'h2'; 
+
+        //Define selector for sub heading element
+        this.subHeadingSelector = 'h4';
+
+        //Define selector for logout button
+        this.logoutButtonSelector = 'a.button.secondary.radius';
     }
   
     async getMessage() {
         // Retrieve text from the flash message element
         return await this.action.getText(this.flashMessageSelector);
+    }
+
+   async getHeadingText() {
+    // Retrieve text from the main heading element  
+    return await this.action.getText(this.mainHeadingSelector);
+    }
+
+    async getSubHeadingText() {
+        return await this.action.getText(this.subHeadingSelector);
     }
 
     async getInvalideUserErrorMessage() {
@@ -40,12 +58,17 @@ export default class SecurePage {
         return await this.action.getTextByText('Username', { exact: true });
     }
 
+     // Logout button just check if it exists
+    async isLogoutButtonVisible() {
+        return await this.page.isVisible(this.logoutButtonSelector);
+    }
+
     async assertLoggedInMessage(passmessage) {
 
         // Get the actual message from the page
         const message = await this.getMessage();
         
         // Assert that the actual message contains the expected text
-        expect(message).toContain(passmessage);
+        await expect(message).toContain(passmessage);
     }
 }

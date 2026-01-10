@@ -39,5 +39,25 @@ export default class CommonActions{
         // Return the checked state of the element
         return await this.page.isChecked(selector)
     }
+
+    /**
+     * Get any attribute value from an element
+     * @param {string} selector - Element selector
+     * @param {string} attribute - Attribute name (href, class, id, etc.)
+     * @returns {Promise<string>} Attribute value
+     */
+    async getElementAttribute(selector, attribute) {
+        return await this.page.getAttribute(selector, attribute);
+    }
+
+    /**
+     * Verify element has a specific CSS class
+     * @param {string} selector - Element selector
+     * @param {string} className - Class name to verify (partial match)
+     */
+    async verifyElementHasClass(selector, className) {
+        const element = this.page.locator(selector);
+        await expect(element).toHaveClass(new RegExp(className));
+    }
     
 }
