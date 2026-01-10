@@ -15,30 +15,25 @@ export default class SecurePage {
 
         //Define selector for flash message element
         this.flashMessageSelector = '#flash';
-        
     }
-
   
     async getMessage() {
         // Retrieve text from the flash message element
         return await this.action.getText(this.flashMessageSelector);
     }
 
-    
     async getInvalideUserErrorMessage() {
 
          // Retrieve text from the flash message element
         return await this.action.getText(this.flashMessageSelector);
     }
 
-   
     async getInvalidePasswordErrorMessage() {
 
          // Retrieve text from the flash message element
         return await this.action.getText(this.flashMessageSelector);
     }
 
-   
     async getUsernameLabelText() {
 
         // Use exact text matching to find the Username label
