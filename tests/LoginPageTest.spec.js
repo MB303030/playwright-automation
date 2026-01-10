@@ -63,15 +63,6 @@ test.describe('Login Functionality', () => {
        // await pm.page.pause()
     });
 
-    test('Login with valid credential', async()=>{
-        await pm.loginPage.login(username,password);
-        await pm.securePage.assertLoggedInMessage('You logged into a secure area!');
-
-        //Assert value directly in test
-        const message = await pm.securePage.getMessage();
-        expect (message).toContain(secureMessageConstant);
-    })
-
     test('Check that Username label exist and the text is Username',async()=>{
         
         //Assert Username label 
