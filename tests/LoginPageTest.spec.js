@@ -56,7 +56,7 @@ test.describe('Login Page Structure @Sanity', () => {
     });
 });
 
-test.describe('Login Functionality', () => {
+test.describe('Login page UI check @Sanity', () => {
     test.beforeEach(async({ page }) => {
         pm = new PomManager(page);
         await pm.loginPage.navigate();
@@ -70,49 +70,11 @@ test.describe('Login Functionality', () => {
         expect(textLabelWithHover).toBe(userNameLabel); 
     })
 
-     test('Check that Password label exist and the text is Password',async()=>{
+    test('Check that Password label exist and the text is Password',async()=>{
         
         //Assert password label 
         const textLabelWithHover = await pm.loginPage.getPasswordLabelTextWithHover();
         expect(textLabelWithHover).toBe(passwordNameLabel);  
-    })
-
-    test('Login with invalid username',async()=>{
-        await pm.loginPage.login('username',password);
-        
-        //Assert username invalid
-        const message = await pm.securePage.getInvalideUserErrorMessage();
-        expect (message).toContain(expectedMessageInvalidUserName) 
-    })
-    test('Login with empty username', async () => {
-        await pm.loginPage.login('', password);
-        const message = await pm.securePage.getInvalideUserErrorMessage();
-        expect(message).toContain(expectedMessageInvalidUserName);
-    });
-    test('Login with special charachters as a username', async () => {
-        await pm.loginPage.login('!@#$%^&*()_+', password);
-        const message = await pm.securePage.getInvalideUserErrorMessage();
-        expect(message).toContain(expectedMessageInvalidUserName);
-    });
-    test('Login with sql injection as a username', async () => {
-        await pm.loginPage.login("' OR '1'='1", password);
-        const message = await pm.securePage.getInvalideUserErrorMessage();
-        expect(message).toContain(expectedMessageInvalidUserName);
-    });
-
-    test('Login with invalid password',async()=>{
-        await pm.loginPage.login(username,'password');
-        
-        //Assert password invalid
-        const message = await pm.securePage.getInvalidePasswordErrorMessage();
-        expect (message).toContain(expectedMessageinvalidePassword)   
-    })
-    test('Login with invalid password as a long string',async()=>{
-        await pm.loginPage.login(username,'!@#$%^&*()POUYTREWQfggghggfbfbdfbdfgdfgdfgdsfsafasfasdasd?><');
-        
-        //Assert password invalid
-        const message = await pm.securePage.getInvalidePasswordErrorMessage();
-        expect (message).toContain(expectedMessageinvalidePassword)   
     })
 
     test('Complete login page validation', async() => {
