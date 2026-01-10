@@ -9,7 +9,7 @@ let secureMessageTitle = ' Secure Area'
 let WelcomeMessage = 'Welcome to the Secure Area. When you are done click logout below.'
 let logoutButtonText = 'Logout'
 
-test.describe('Secure Area page', () => {
+test.describe('Secure Area page @smoke', () => {
     test.beforeEach(async({ page }) => {
         pm = new PomManager(page);
         await pm.loginPage.navigate();
@@ -17,7 +17,7 @@ test.describe('Secure Area page', () => {
        // await pm.page.pause()
     });
 
-    test('Login with valid credential @smoke', async()=>{
+    test('Login with valid credential', async()=>{
 
         await pm.securePage.assertLoggedInMessage('You logged into a secure area!');
         // get secure area message text 

@@ -10,7 +10,7 @@ let expectedMessageinvalidePassword = 'Your password is invalid!'
 let userNameLabel = 'Username'
 let passwordNameLabel = 'Password'
 
-test.describe('Login Page Structure', () => {
+test.describe('Login Page Structure @Sanity', () => {
     test.beforeEach(async({ page }) => {
         pm = new PomManager(page);
         await pm.loginPage.navigate();
