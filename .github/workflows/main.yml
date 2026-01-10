@@ -1,7 +1,6 @@
-name: Playwright_OnDemand
+name: Playwright OnDemand
 
 on:
-  # Manual trigger with branch selection
   workflow_dispatch:
     inputs:
       branch:
@@ -12,13 +11,7 @@ on:
         options:
           - main
           - master
-      run_all:
-        description: 'Run all tests (including slow ones)'
-        required: false
-        type: boolean
-        default: false
 
-  # Keep existing automated triggers
   push:
     branches: [ main, master ]
   pull_request:
@@ -29,21 +22,21 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     
-    # Display branch in job name for clarity
-    name: 'Tests on ${{ github.event.inputs.branch || github.ref_name }}'
-    
     steps:
-    - name: Checkout code from selected branch
+    - name: Checkout code
       uses: actions/checkout@v4
       with:
-        # Use the manually selected branch, or the current branch for automated runs
-        ref: ${{ github.event.inputs.branch || github.ref }}
+        # FIX: Use proper branch reference for manual runs
+        ref: ${{ github.event.inputs.branch || github.ref_name }}
+        # FIX: Disable submodules if you had issues
+        submodules: false
+        # FIX: Fetch all history for branch resolution
+        fetch-depth: 0
         
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: lts/*
-        cache: 'npm'
         
     - name: Install dependencies
       run: npm ci
@@ -52,13 +45,8 @@ jobs:
       run: npx playwright install --with-deps
       
     - name: Run Playwright tests
-      run: |
-        if [ "${{ github.event.inputs.run_all }}" = "true" ]; then
-          npx playwright test
-        else
-          npx playwright test --grep=@regression
-        fi
-        
+      run: npx playwright test
+      
     - name: Upload test report
       uses: actions/upload-artifact@v4
       if: always()
