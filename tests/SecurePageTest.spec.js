@@ -1,59 +1,61 @@
-import { test, expect } from '@playwright/test' // Add 'test' import
+import { test, expect } from '@playwright/test';
 import PomManager from '../pages/PomManager.js';
+import { TEST_DATA } from '../constants/test_data.js';
 
-let pm;
-let username = 'tomsmith'
-let password = 'SuperSecretPassword!'
-let secureMessageConstant = 'You logged into a secure area!'
-let secureMessageTitle = ' Secure Area'
-let WelcomeMessage = 'Welcome to the Secure Area. When you are done click logout below.'
-let logoutButtonText = 'Logout'
+let pm; // Page Manager instance
 
+// Extract test data from constants for readability
+const VALID_USERNAME = TEST_DATA.CREDENTIALS.VALID.USERNAME;
+const VALID_PASSWORD = TEST_DATA.CREDENTIALS.VALID.PASSWORD;
+const LOGIN_SUCCESS_MESSAGE = TEST_DATA.MESSAGES.LOGIN_SUCCESS;
+const SECURE_AREA_TITLE = TEST_DATA.MESSAGES.SECURE_AREA_TITLE;
+const WELCOME_MESSAGE = TEST_DATA.MESSAGES.WELCOME_MESSAGE;
+const LOGOUT_BUTTON_TEXT = TEST_DATA.LABELS.LOGOUT_BUTTON;
+
+// Test suite for Secure Area page - tagged with @smoke for quick validation
 test.describe('Secure Area page @smoke', () => {
+    
+    // Setup: Login before each test
     test.beforeEach(async({ page }) => {
         pm = new PomManager(page);
         await pm.loginPage.navigate();
-        await pm.loginPage.login(username,password);
-       // await pm.page.pause()
+        await pm.loginPage.login(VALID_USERNAME, VALID_PASSWORD);
     });
 
-    test('Login with valid credential', async()=>{
-
-        await pm.securePage.assertLoggedInMessage('You logged into a secure area!');
-        // get secure area message text 
+    // Test: Verify successful login message
+    test('Login with valid credentials should show success message', async() => {
+        await pm.securePage.assertLoggedInMessage(LOGIN_SUCCESS_MESSAGE);
         const message = await pm.securePage.getMessage();
-        expect (message).toContain(secureMessageConstant);
-    })
+        expect(message).toContain(LOGIN_SUCCESS_MESSAGE);
+    });
 
-    test('Secure Area title', async()=>{
-        //get secure area title text
-        const message = await pm.securePage.getHeadingText();
-        expect (message).toBe(secureMessageTitle);
-    })
+    // Test: Verify page heading/title
+    test('Secure Area should have correct title', async() => {
+        const title = await pm.securePage.getHeadingText();
+        expect(title.trim()).toBe(SECURE_AREA_TITLE);
+    });
 
-    test('Welcome message text', async()=>{
-        // get welcome message text 
+    // Test: Verify welcome message text
+    test('Secure Area should display welcome message', async() => {
         const message = await pm.securePage.getSubHeadingText();
-        expect (message).toBe(WelcomeMessage);
-    })
+        expect(message).toBe(WELCOME_MESSAGE);
+    });
 
-   test('Logout button is it visible', async() => {
-           
-        // Check visibility of the logout button
+    // Test: Verify logout button visibility
+    test('Logout button should be visible', async() => {
         const isVisible = await pm.securePage.isLogoutButtonVisible();
         expect(isVisible).toBe(true);
     });
 
-   test('Logout button has correct text', async() => {
-        // get tect of loggout button 
+    // Test: Verify logout button text
+    test('Logout button should have correct text', async() => {
         const text = await pm.securePage.getLogoutButtonText();
-        expect(text).toContain(logoutButtonText);
+        expect(text).toContain(LOGOUT_BUTTON_TEXT);
     });
     
-   test('Logout button should be enabled', async() => {
-    // Check if the logout button is enabled
-    const isEnabled = await pm.securePage.isLogoutButtonEnabled();
-    expect(isEnabled).toBe(true);
-});
-
+    // Test: Verify logout button is enabled/clickable
+    test('Logout button should be enabled', async() => {
+        const isEnabled = await pm.securePage.isLogoutButtonEnabled();
+        expect(isEnabled).toBe(true);
+    });
 });

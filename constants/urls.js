@@ -18,6 +18,8 @@ export const URLS = {
     MULTIPLE_WINDOWS: 'https://the-internet.herokuapp.com/windows',
     
     // Other pages
+
+    BROKEN_IMAGE: 'https://the-internet.herokuapp.com/broken_images',
     CONTEXT_MENU: 'https://the-internet.herokuapp.com/context_menu',
     DRAG_AND_DROP: 'https://the-internet.herokuapp.com/drag_and_drop',
     HOVERS: 'https://the-internet.herokuapp.com/hovers',

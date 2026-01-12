@@ -15,8 +15,6 @@ test.describe('Negative Login Tests - Data Driven @negative tests', () => {
     // Create a separate test for EACH negative case
     negativeLoginTestCases.forEach(testCase => {
         test(`Should fail login with ${testCase.name}`, async() => {
-            console.log(`Testing: ${testCase.name}`);
-            console.log(`Username: ${testCase.username}, Password: ${testCase.password ? '***' : '(empty)'}`);
             
             await pm.loginPage.login(testCase.username, testCase.password);
             
