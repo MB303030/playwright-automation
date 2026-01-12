@@ -1,7 +1,7 @@
 import {expect} from '@playwright/test'
 import CommonActions from '../utils/CommonActions.js'
 import BasePage from './basePage.js';
-
+import { URLS } from '../constants/urls.js'; 
 
 export default class LoginPage extends BasePage {  
     constructor(page){
@@ -19,7 +19,7 @@ export default class LoginPage extends BasePage {
 
     async navigate(){
          // Navigate to the specific login page URL
-        await this.actions.navigate('https://the-internet.herokuapp.com/login')
+        await this.actions.navigate(URLS.LOGIN);
     }
 
     async login(username, password){

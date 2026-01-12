@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test' // Add 'test' import
 import PomManager from '../pages/PomManager.js';
+import { URLS } from '../constants/urls.js';
 
 let pm;
 let username = 'tomsmith'
