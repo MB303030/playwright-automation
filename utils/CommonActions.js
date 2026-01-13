@@ -59,5 +59,39 @@ export default class CommonActions{
         const element = this.page.locator(selector);
         await expect(element).toHaveClass(new RegExp(className));
     }
+
+    /**
+     * Wait for element to be visible
+     * @param {string} selector - Element selector
+     * @param {Object} options - Optional wait options
+     */
+    async waitForElement(selector, options = {}) {
+        const element = this.page.locator(selector);
+        await element.waitFor({ 
+            state: 'visible',
+            timeout: options.timeout || 10000, // 10 second default
+            ...options 
+        });
+    }
+    
+    /**
+     * Check if element is visible
+     * @param {string} selector - Element selector
+     * @returns {Promise<boolean>} Visibility state
+     */
+    async isVisible(selector) {
+        const element = this.page.locator(selector);
+        return await element.isVisible();
+    }
+    
+    /**
+     * Check if element is enabled (not disabled)
+     * @param {string} selector - Element selector
+     * @returns {Promise<boolean>} Enabled state
+     */
+    async isEnabled(selector) {
+        const element = this.page.locator(selector);
+        return await element.isEnabled();
+    }
     
 }

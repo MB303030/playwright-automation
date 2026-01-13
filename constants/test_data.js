@@ -6,6 +6,22 @@ export const TEST_DATA = {
             PASSWORD: 'SuperSecretPassword!'
         }
     },
+    SELECTORS: {
+        // Login page selectors
+        LOGIN_FORM: {
+            USERNAME: '#username',
+            PASSWORD: '#password',
+            SUBMIT_BUTTON: 'button[type="submit"]',
+            FORM: '#login',
+            REMEMBER_ME: 'input[name="remember"]'
+        },
+        // Secure area selectors
+        SECURE_AREA: {
+            LOGOUT_BUTTON: 'a.button.secondary',
+            FLASH_MESSAGE: '#flash',
+            HEADER: 'h2'
+        }
+    },
     LABELS: {
         USERNAME: 'Username',
         PASSWORD: 'Password',
