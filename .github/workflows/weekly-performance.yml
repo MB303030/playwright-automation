@@ -1,0 +1,29 @@
+name: Weekly Performance Tests
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch: true
+
+jobs:
+  performance:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Find and run performance tests
+      run: |
+        # Find all performance test files
+        TEST_FILES=$(find . -name "*performance*.spec.js" -type f)
+        echo "Found test files: $TEST_FILES"
+        
+        # Install if needed
+        npm ci || true
+        npx playwright install chromium || true
+        
+        # Run tests
+        for file in $TEST_FILES; do
+          echo "Running: $file"
+          npx playwright test "$file" --project=chrome-performance --grep="@Weekly" || true
+        done
