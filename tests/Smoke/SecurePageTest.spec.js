@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import PomManager from '../pages/PomManager.js';
-import { TEST_DATA } from '../constants/test_data.js';
+import PomManager from '../../pages/PomManager.js';
+import { TEST_DATA } from '../../constants/test_data.js';
 
 let pm; // Page Manager instance
 

@@ -1,7 +1,7 @@
 // tests/debug-screenshot.spec.js
 import { test, expect } from '@playwright/test';
 
-test('Debug - Force failure to see artifacts', async({ page }) => {
+test('Debug - Force failure to see artifacts @Regression', async({ page }) => {
     
     // Go to login page
     await page.goto('https://the-internet.herokuapp.com/login');

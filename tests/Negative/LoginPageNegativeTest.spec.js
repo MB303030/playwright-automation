@@ -1,6 +1,6 @@
 // tests/login-negative.spec.js
 import { test, expect } from '@playwright/test';
-import PomManager from '../pages/PomManager.js';
+import PomManager from '../../pages/PomManager.js';
 import { negativeLoginTestCases } from './NegativeLoginTestData.js';
 
 let pm;

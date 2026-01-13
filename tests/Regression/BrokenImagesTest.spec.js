@@ -1,7 +1,7 @@
 // tests/broken-images.spec.js
 import { test, expect } from '@playwright/test';
-import PomManager from '../pages/PomManager.js';
-import { URLS } from '../constants/urls.js';
+import PomManager from '../../pages/PomManager.js';
+import { URLS } from '../../constants/urls.js';
 
 let pm;
 
