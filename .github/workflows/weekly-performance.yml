@@ -1,5 +1,3 @@
-name: Weekly Performance Tests
-
 on:
   schedule:
     - cron: '0 9 * * 1'
@@ -12,18 +10,15 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Find and run performance tests
+    - name: Install dependencies
       run: |
-        # Find all performance test files
-        TEST_FILES=$(find . -name "*performance*.spec.js" -type f)
-        echo "Found test files: $TEST_FILES"
-        
-        # Install if needed
         npm ci || true
         npx playwright install chromium || true
-        
-        # Run tests
-        for file in $TEST_FILES; do
-          echo "Running: $file"
-          npx playwright test "$file" --project=chrome-performance --grep="@Weekly" || true
-        done
+    
+    - name: Run performance tests
+      run: |
+        if [ -d "tests/performance" ]; then
+          npx playwright test tests/performance --project=chrome-performance --grep="@Weekly" || true
+        else
+          echo "Directory tests/performance does not exist. Skipping performance tests."
+        fi
