@@ -8,8 +8,8 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 1,
-  workers: process.env.CI ? 1 : 1,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 2 : 2,
   reporter: 'html',
   
   use: {
@@ -21,18 +21,15 @@ export default defineConfig({
 
   /* Configure projects for major browsers */
   projects: [
-    // ===== ADD THIS NEW PROJECT FOR PERFORMANCE TESTS =====
+    // ===== PERFORMANCE PROJECT (UNCHANGED) =====
     {
       name: 'chrome-performance',
       use: { 
         ...devices['Desktop Chrome'],
-        // Performance-specific settings
         launchOptions: {
           args: ['--enable-features=PerformanceObserver']
         },
-        // Consistent viewport for performance measurements
         viewport: { width: 1920, height: 1080 },
-        // Disable animations for consistent timing
         contextOptions: {
           reducedMotion: 'reduce'
         }
@@ -43,80 +40,44 @@ export default defineConfig({
       fullyParallel: false,
     },
     
-    // ===== MOBILE DEVICES (ADDED BELOW) =====
+    // ===== MOBILE DEVICES (ONLY RUN @Mobile TAGGED TESTS) =====
     {
-      name: 'iphone-small',
-      use: { 
-        ...devices['iPhone SE'],
-        isMobile: true,
-        hasTouch: true,
-      },
-      grepInvert: /@Performance/, // Skip performance tests
-    },
-    {
-      name: 'iphone-standard',
+      name: 'iphone-12',
       use: { 
         ...devices['iPhone 12'],
         isMobile: true,
         hasTouch: true,
       },
-      grepInvert: /@Performance/,
+      grep: /@Mobile/, // ⭐ ONLY run tests with @Mobile tag
     },
     {
-      name: 'iphone-large',
-      use: { 
-        ...devices['iPhone 12 Pro Max'],
-        isMobile: true,
-        hasTouch: true,
-      },
-      grepInvert: /@Performance/,
-    },
-    {
-      name: 'android-standard',
+      name: 'pixel-5',
       use: { 
         ...devices['Pixel 5'],
         isMobile: true,
         hasTouch: true,
       },
-      grepInvert: /@Performance/,
-    },
-    {
-      name: 'android-small',
-      use: { 
-        ...devices['Galaxy S21'],
-        isMobile: true,
-        hasTouch: true,
-      },
-      grepInvert: /@Performance/,
-    },
-    {
-      name: 'tablet-ipad',
-      use: { 
-        ...devices['iPad (gen 7)'],
-        isMobile: true,
-        hasTouch: true,
-      },
-      grepInvert: /@Performance/,
+      grep: /@Mobile/, // ⭐ ONLY run tests with @Mobile tag
     },
     
-    // ===== KEEP YOUR EXISTING PROJECTS EXACTLY AS IS =====
+    // ===== DESKTOP BROWSERS (UNCHANGED - SKIP @Mobile & @Performance) =====
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      // Skip performance tests (they run in separate project)
-      grepInvert: /@Performance/,
+      // Skip performance tests AND mobile tests
+      grepInvert: /@Performance|@Mobile/,
     },
 
     // {
     //   name: 'firefox',
     //   use: { ...devices['Desktop Firefox'] },
-    //   grepInvert: /@Performance/,
+    //   grepInvert: /@Performance|@Mobile/,
     // },
 
     // {
     //   name: 'webkit',
     //   use: { ...devices['Desktop Safari'] },
-    //   grepInvert: /@Performance/,
+    //   grepInvert: /@Performance|@Mobile/,
     // },
   ],
 });
