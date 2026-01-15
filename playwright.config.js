@@ -43,7 +43,63 @@ export default defineConfig({
       fullyParallel: false,
     },
     
-    // ===== KEEP YOUR EXISTING PROJECTS (slightly modified) =====
+    // ===== MOBILE DEVICES (ADDED BELOW) =====
+    {
+      name: 'iphone-small',
+      use: { 
+        ...devices['iPhone SE'],
+        isMobile: true,
+        hasTouch: true,
+      },
+      grepInvert: /@Performance/, // Skip performance tests
+    },
+    {
+      name: 'iphone-standard',
+      use: { 
+        ...devices['iPhone 12'],
+        isMobile: true,
+        hasTouch: true,
+      },
+      grepInvert: /@Performance/,
+    },
+    {
+      name: 'iphone-large',
+      use: { 
+        ...devices['iPhone 12 Pro Max'],
+        isMobile: true,
+        hasTouch: true,
+      },
+      grepInvert: /@Performance/,
+    },
+    {
+      name: 'android-standard',
+      use: { 
+        ...devices['Pixel 5'],
+        isMobile: true,
+        hasTouch: true,
+      },
+      grepInvert: /@Performance/,
+    },
+    {
+      name: 'android-small',
+      use: { 
+        ...devices['Galaxy S21'],
+        isMobile: true,
+        hasTouch: true,
+      },
+      grepInvert: /@Performance/,
+    },
+    {
+      name: 'tablet-ipad',
+      use: { 
+        ...devices['iPad (gen 7)'],
+        isMobile: true,
+        hasTouch: true,
+      },
+      grepInvert: /@Performance/,
+    },
+    
+    // ===== KEEP YOUR EXISTING PROJECTS EXACTLY AS IS =====
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
