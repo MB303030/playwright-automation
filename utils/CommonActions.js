@@ -1,3 +1,4 @@
+import { expect } from '@playwright/test'; 
 export default class CommonActions{
     // Constructor that accepts a page object (Playwright page instance)
     constructor(page){

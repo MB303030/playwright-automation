@@ -17,14 +17,15 @@
  */
 
 import { test, expect } from '@playwright/test';
-import PomManager from '../../pages/PomManager.js';
-import { URLS } from '../../constants/urls.js';
-import { TEST_DATA } from '../../constants/test_data.js';
-import CommonActions from '../../utils/CommonActions.js';
+import PomManager from '../../../pages/PomManager.js';
+import { URLS } from '../../../constants/urls.js';
+import { TEST_DATA } from '../../../constants/test_data.js';
+import CommonActions from '../../../utils/CommonActions.js';
+
 import { 
     measureExecutionTime, 
     assertPerformanceThreshold 
-} from '../../utils/PerformanceUtils.js';
+} from '../../../utils/PerformanceUtils.js';
 
 const TEST_USERNAME = TEST_DATA.CREDENTIALS.VALID.USERNAME;
 const TEST_PASSWORD = TEST_DATA.CREDENTIALS.VALID.PASSWORD;

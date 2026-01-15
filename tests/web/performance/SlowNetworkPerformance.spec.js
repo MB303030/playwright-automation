@@ -15,12 +15,12 @@
  */
 
 import { test } from '@playwright/test';
-import PomManager from '../../pages/PomManager.js';
-import { TEST_DATA } from '../../constants/test_data.js';
+import PomManager from '../../../pages/PomManager.js';
+import { TEST_DATA } from '../../../constants/test_data.js';
 import { 
     measureExecutionTime,
     assertPerformanceThreshold 
-} from '../../utils/PerformanceUtils.js';
+} from '../../../utils/PerformanceUtils.js';
 
 const { LOGIN_FORM } = TEST_DATA.SELECTORS;
 
