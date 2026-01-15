@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import PomManager from '../../pages/PomManager.js';
-import { TEST_DATA } from '../../constants/test_data.js';
+import PomManager from '../../../pages/PomManager.js';
+import { TEST_DATA } from '../../../constants/test_data.js';
 
 let pm;
 // Extract test data
@@ -10,7 +10,7 @@ const SELECTORS = TEST_DATA.SELECTORS.LOGIN_FORM;
 const MESSAGES = TEST_DATA.MESSAGES.LOGIN_SUCCESS
 const FLASH_MESSAGE = TEST_DATA.SELECTORS.SECURE_AREA.FLASH_MESSAGE;
 
-test.describe('Mobile Smoke Tests @Smoke @Mobile', () => {
+test.describe.only('Mobile Smoke Tests @Smoke @Mobile', () => {
     
     test.beforeEach(async({ page }) => {
         pm = new PomManager(page);
