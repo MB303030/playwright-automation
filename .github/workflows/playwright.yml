@@ -1,4 +1,4 @@
-name: Playwright Tests with Performance Graphs
+name: Playwright Tests
 on:
   push:
     branches: [ main, master ]
@@ -14,44 +14,20 @@ jobs:
       with:
         node-version: lts/*
     
-    # 1. Install everything
     - name: Install dependencies
-      run: |
-        npm ci
-        npm install -g @lhci/cli lighthouse
-        
+      run: npm ci
+    
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
     
-    # 2. Run your existing tests
+    # ⬇️ RUN WITH THE FANCY REPORTER
     - name: Run Playwright tests
-      run: npx playwright test --reporter=html
+      run: npx playwright test --reporter=playwright-html-reporter,list
     
-    # 3. ⭐⭐ REAL PERFORMANCE GRAPHS ⭐⭐
-    - name: Run Lighthouse Performance Tests
-      run: |
-        # Create a simple test to run Lighthouse on
-        cat > lighthouse-test.js << 'EOF'
-        const { chromium } = require('playwright');
-        (async () => {
-          const browser = await chromium.launch();
-          const page = await browser.newPage();
-          await page.goto('https://your-site.com');
-          await browser.close();
-        })();
-        EOF
-        
-        node lighthouse-test.js
-        
-        # Run Lighthouse CI (creates real graphs)
-        lhci autorun --upload.target=temporary-public-storage
-    
-    # 4. Upload everything
+    # ⬇️ UPLOAD THE FANCY REPORT
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
-        name: test-results
-        path: |
-          playwright-report/
-          .lighthouseci/
+        name: playwright-report
+        path: playwright-report/
         retention-days: 30
