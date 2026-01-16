@@ -97,5 +97,14 @@
     "fcp": 0,
     "lcp": 0,
     "ttfb": 18
+  },
+  {
+    "date": "2026-01-16T21:55:10.497Z",
+    "loadTime": 85,
+    "domReady": 85,
+    "firstPaint": 0,
+    "fcp": 0,
+    "lcp": 0,
+    "ttfb": 25
   }
 ]
