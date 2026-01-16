@@ -1,83 +1,57 @@
 // @ts-check
 import { defineConfig, devices } from '@playwright/test';
 
-/**
- * @see https://playwright.dev/docs/test-configuration
- */
 export default defineConfig({
+  // 🎯 ROOT directory for ALL tests
   testDir: './tests',
-  fullyParallel: false,
+  
+  fullyParallel: true,  // Changed to true for parallel execution
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : 2,
-  reporter: 'html',
+  workers: process.env.CI ? 4 : 4,  // More workers for parallel
+  
+  reporter: [
+    ['list'],
+    ['playwright-html-reporter', {
+      outputFolder: 'playwright-report',
+      open: true,
+      showPerformance: true,
+      showBrowser: true,
+      showOS: true,
+    }]
+  ],
   
   use: {
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     trace: 'retain-on-failure',
-    headless: true
+    headless: true,
   },
 
-  /* Configure projects for major browsers */
+  /* 🎯 UPDATED: Simpler Project Structure */
   projects: [
-    // ===== PERFORMANCE PROJECT (UNCHANGED) =====
+    // ===== CHROME: ALL WEB TESTS =====
     {
-      name: 'chrome-performance',
+      name: 'chrome-web',
+      // Remove testMatch - finds ALL tests in testDir
       use: { 
         ...devices['Desktop Chrome'],
-        launchOptions: {
-          args: ['--enable-features=PerformanceObserver']
-        },
         viewport: { width: 1920, height: 1080 },
-        contextOptions: {
-          reducedMotion: 'reduce'
-        }
       },
-      // Run only performance tests with @Performance tag
-      grep: /@Performance/,
-      // Run sequentially for accurate timing
-      fullyParallel: false,
+      // Differentiate performance vs functional by tags
+      // (performance tests have @Performance tag)
     },
-    
-    // ===== MOBILE DEVICES (ONLY RUN @Mobile TAGGED TESTS) =====
+
+    // ===== MOBILE: ALL MOBILE TESTS =====
     {
-      name: 'iphone-12',
+      name: 'mobile',
+      // Use grep to ONLY run mobile-tagged tests
+      grep: /@Mobile/,
       use: { 
         ...devices['iPhone 12'],
         isMobile: true,
         hasTouch: true,
       },
-      grep: /@Mobile/, // ⭐ ONLY run tests with @Mobile tag
     },
-    {
-      name: 'pixel-5',
-      use: { 
-        ...devices['Pixel 5'],
-        isMobile: true,
-        hasTouch: true,
-      },
-      grep: /@Mobile/, // ⭐ ONLY run tests with @Mobile tag
-    },
-    
-    // ===== DESKTOP BROWSERS (UNCHANGED - SKIP @Mobile & @Performance) =====
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-      // Skip performance tests AND mobile tests
-      grepInvert: /@Performance|@Mobile/,
-    },
-
-    // {
-    //   name: 'firefox',
-    //   use: { ...devices['Desktop Firefox'] },
-    //   grepInvert: /@Performance|@Mobile/,
-    // },
-
-    // {
-    //   name: 'webkit',
-    //   use: { ...devices['Desktop Safari'] },
-    //   grepInvert: /@Performance|@Mobile/,
-    // },
   ],
 });
