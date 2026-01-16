@@ -1,5 +1,4 @@
-# .github/workflows/test.yml
-name: Tests
+name: Playwright Tests
 on: [push]
 
 jobs:
@@ -8,9 +7,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-      - run: npm ci && npx playwright install --with-deps
-      - run: npx playwright test
-      - uses: actions/upload-artifact@v4
+      
+      - name: Install dependencies
+        run: |
+          npm ci
+          # ⬇️ INSTALL THE FANCY REPORTER
+          npm install playwright-html-reporter --save-dev
+          
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
+      
+      # ⬇️ USE THE FANCY REPORTER
+      - name: Run tests with fancy report
+        run: npx playwright test --reporter=playwright-html-reporter --output playwright-report/
+      
+      # ⬇️ UPLOAD THE FANCY REPORT
+      - name: Upload fancy HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: report
+          name: playwright-fancy-report
           path: playwright-report/
+          retention-days: 30
