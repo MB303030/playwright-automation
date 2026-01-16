@@ -10,19 +10,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 2 : 2,
-  
-  // 🎯 FIXED REPORTER SECTION (merge both into one):
-  reporter: [
-    ['html'],  // Default HTML
-    ['playwright-html-reporter', {  // Enhanced version
-      outputFolder: 'playwright-report',  // Changed from 'html-report-enhanced'
-      open: true,
-      // Adds performance sections
-      showPerformance: true,
-      showBrowser: true,
-      showOS: true
-    }]
-  ],
+  reporter: 'html',
   
   use: {
     screenshot: 'only-on-failure',
@@ -92,4 +80,4 @@ export default defineConfig({
     //   grepInvert: /@Performance|@Mobile/,
     // },
   ],
-});  // 🎯 Only ONE closing brace and semicolon!
+});
