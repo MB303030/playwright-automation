@@ -1,0 +1,56 @@
+[
+  {
+    "date": "2026-01-16T19:37:44.984Z",
+    "loadTime": 138,
+    "domReady": 138,
+    "firstPaint": 0,
+    "fcp": 0,
+    "lcp": 0,
+    "ttfb": 24
+  },
+  {
+    "date": "2026-01-16T19:38:28.698Z",
+    "loadTime": 73,
+    "domReady": 73,
+    "firstPaint": 0,
+    "fcp": 0,
+    "lcp": 0,
+    "ttfb": 22
+  },
+  {
+    "date": "2026-01-16T19:44:17.249Z",
+    "loadTime": 113,
+    "domReady": 112,
+    "firstPaint": 0,
+    "fcp": 0,
+    "lcp": 0,
+    "ttfb": 25
+  },
+  {
+    "date": "2026-01-16T19:46:47.903Z",
+    "loadTime": 72,
+    "domReady": 72,
+    "firstPaint": 0,
+    "fcp": 0,
+    "lcp": 0,
+    "ttfb": 20
+  },
+  {
+    "date": "2026-01-16T19:54:09.463Z",
+    "loadTime": 83,
+    "domReady": 82,
+    "firstPaint": 0,
+    "fcp": 0,
+    "lcp": 0,
+    "ttfb": 21
+  },
+  {
+    "date": "2026-01-16T20:01:15.925Z",
+    "loadTime": 92,
+    "domReady": 92,
+    "firstPaint": 0,
+    "fcp": 0,
+    "lcp": 0,
+    "ttfb": 28
+  }
+]

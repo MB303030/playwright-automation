@@ -1,0 +1,3 @@
+Current request count: 11
+Historical average: 25
+Max allowed (30% over): 32.5

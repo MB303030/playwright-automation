@@ -1,0 +1,4 @@
+Total load time: 2.34s
+TTFB: 663ms
+DOM Content Loaded: 2.16s
+Load Event: 2.33s

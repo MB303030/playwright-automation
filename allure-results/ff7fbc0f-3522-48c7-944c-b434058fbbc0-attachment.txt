@@ -1,0 +1,3 @@
+Current load time: 2.16s
+Historical baseline: 2.00s
+Max allowed (50% over): 3.00s

@@ -11,6 +11,7 @@ export default defineConfig({
   workers: process.env.CI ? 4 : 4,  // More workers for parallel
   
   reporter: [
+    ['allure-playwright'],
     ['list'],
     ['playwright-html-reporter', {
       outputFolder: 'playwright-report',
