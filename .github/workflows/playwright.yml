@@ -17,8 +17,50 @@ jobs:
       run: npm ci
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
+    
+    # ⬇️ ONLY CHANGE NEEDED: Run with JSON reporter
     - name: Run Playwright tests
-      run: npx playwright test
+      run: npx playwright test --reporter=json,html --output=test-results.json
+    
+    # ⬇️ NEW: Create simple performance summary
+    - name: Generate performance summary
+      run: |
+        # Extract performance data from test results
+        if [ -f test-results.json ]; then
+          echo "📊 PERFORMANCE SUMMARY" > performance-summary.md
+          echo "======================" >> performance-summary.md
+          echo "" >> performance-summary.md
+          
+          # Count tests
+          total=$(jq '.suites[0].specs | length' test-results.json)
+          passed=$(jq '.suites[0].specs[] | select(.tests[0].results[0].status=="passed") | length' test-results.json | wc -l)
+          echo "**Tests:** $passed/$total passed" >> performance-summary.md
+          
+          # Calculate average duration
+          avg=$(jq '[.suites[0].specs[].tests[0].results[0].duration] | add / length' test-results.json)
+          echo "**Average duration:** ${avg}ms" >> performance-summary.md
+          
+          # List slowest tests
+          echo "" >> performance-summary.md
+          echo "**Slowest tests:**" >> performance-summary.md
+          jq -r '.suites[0].specs[] | [.title, .tests[0].results[0].duration] | @tsv' test-results.json | \
+            sort -k2 -nr | head -5 | \
+            while read test duration; do
+              echo "- $test: ${duration}ms" >> performance-summary.md
+            done
+        fi
+    
+    # ⬇️ NEW: Upload performance summary
+    - name: Upload performance summary
+      uses: actions/upload-artifact@v4
+      if: ${{ !cancelled() }}
+      with:
+        name: performance-summary
+        path: |
+          performance-summary.md
+          test-results.json
+    
+    # Keep your existing report upload
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
