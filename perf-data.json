@@ -61,5 +61,23 @@
     "fcp": 0,
     "lcp": 0,
     "ttfb": 25
+  },
+  {
+    "date": "2026-01-16T21:08:46.190Z",
+    "loadTime": 217,
+    "domReady": 217,
+    "firstPaint": 0,
+    "fcp": 0,
+    "lcp": 0,
+    "ttfb": 78
+  },
+  {
+    "date": "2026-01-16T21:11:41.910Z",
+    "loadTime": 280,
+    "domReady": 280,
+    "firstPaint": 0,
+    "fcp": 0,
+    "lcp": 0,
+    "ttfb": 98
   }
 ]

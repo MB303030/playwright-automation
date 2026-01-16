@@ -1,3 +1,0 @@
-Network idle load time: 2.79s
-Total requests: 11
-Images: 1, Scripts: 5, CSS: 2
