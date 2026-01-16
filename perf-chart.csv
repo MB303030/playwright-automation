@@ -1,7 +1,7 @@
 Metric,Time(ms)
-loadTime,280
-domReady,280
+loadTime,77
+domReady,77
 firstPaint,0
 fcp,0
 lcp,0
-ttfb,98
+ttfb,18
