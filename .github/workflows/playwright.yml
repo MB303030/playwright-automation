@@ -1,93 +1,50 @@
-name: Playwright CI Tests with Allure
+name: Playwright Tests with Allure & GitHub Pages
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
-  test:
+  test-and-deploy:
     runs-on: ubuntu-latest
     
     steps:
-      # Step 1: Verify Docker is installed (without sudo)
-      - name: ✅ Verify Docker installation
-        run: |
-          echo "=== DOCKER CHECK ==="
-          docker --version
-          docker info --format 'Server Version: {{.ServerVersion}}'
-          echo "✅ Docker is pre-installed"
-          echo ""
-          echo "=== RUNNING TEST CONTAINER ==="
-          docker run --rm alpine:latest echo "✓ Docker works perfectly!"
+      - uses: actions/checkout@v4
       
-      # Step 2: Checkout code
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      # Step 3: Setup Node.js
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '18'
       
-      # Step 4: Install dependencies
-      - name: Install dependencies
-        run: |
-          npm ci
-          npm install allure-playwright --save-dev
+      - run: npm ci
+      - run: npm install allure-playwright --save-dev
+      - run: npx playwright install chromium
       
-      # Step 5: Install Playwright browsers
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-      
-      # Step 6: Install Allure CLI (FIXED - no sudo for symlink)
-      - name: Install Allure CLI
+      # Install Allure CLI
+      - name: Install Allure
         run: |
-          # Install Java (needed for Allure)
           sudo apt-get update
           sudo apt-get install -y default-jre
-          
-          # Download and install Allure to user directory
           wget -q https://github.com/allure-framework/allure2/releases/download/2.24.1/allure-2.24.1.zip
           unzip -q allure-2.24.1.zip -d ~/
-          
-          # Add to PATH without sudo
           echo "$HOME/allure-2.24.1/bin" >> $GITHUB_PATH
-          
-          # Verify installation
-          echo "Allure installed at:"
-          ls -la ~/allure-2.24.1/bin/
-          
-          # Check version
-          ~/allure-2.24.1/bin/allure --version
       
-      # Step 7: Run tests with Allure
-      - name: Run tests with Allure
-        run: |
-          npx playwright test --reporter=allure-playwright
+      - run: npx playwright test --reporter=allure-playwright
+      - run: allure generate allure-results -o allure-report --clean
       
-      # Step 8: Generate Allure report
-      - name: Generate Allure report
-        if: always()
-        run: |
-          allure generate allure-results -o allure-report --clean
-          echo "📊 Report generated: allure-report/"
-      
-      # Step 9: Upload report
-      - name: Upload Allure report
-        if: always()
+      # 👇 UPLOAD FOR DOWNLOAD (optional - keep if you want)
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: allure-report/
-          retention-days: 30
       
-      # Step 10: Upload screenshots/videos from failures
-      - name: Upload failure evidence
-        if: failure()
-        uses: actions/upload-artifact@v4
+      # 👇 DEPLOY TO GITHUB PAGES (creates direct link)
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'  # Only on main branch
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          name: failure-evidence
-          path: test-results/
-          retention-days: 30
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./allure-report
+          destination_dir: ./reports
