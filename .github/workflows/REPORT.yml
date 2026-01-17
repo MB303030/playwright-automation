@@ -1,4 +1,4 @@
-name: Docker Playwright CI ON DEMAND with Docker
+name: Docker Playwright CI ON DEMAND
 
 on:
   workflow_dispatch:
@@ -9,16 +9,12 @@ jobs:
     
     steps:
     # ─────────────────────────────────────────────────────
-    # HORIZONTAL VISUALIZATION (all in one job)
+    # PHASE 1: Environment Setup
     # ─────────────────────────────────────────────────────
-    - name: 🟦 PHASE 1: Environment Setup
-      id: phase1
+    - name: 🔍 Check Docker (Phase 1.1)
+      id: check-docker
       run: |
-        echo "=== 🟦 PHASE 1: Environment Setup ==="
-        echo ""
-        
-        # Step 1: Check Docker
-        echo "🔍 Checking Docker..."
+        echo "=== 🔍 Docker Check ==="
         if command -v docker &> /dev/null; then
           echo "✅ Docker: $(docker --version)"
           echo "docker_available=true" >> $GITHUB_OUTPUT
@@ -26,20 +22,21 @@ jobs:
           echo "⚠️ Docker not found"
           echo "docker_available=false" >> $GITHUB_OUTPUT
         fi
-        
-        # Step 2: Checkout code
-        echo ""
-        echo "📥 Checking out code..."
-        # Already done by GitHub Actions, just confirm
-        echo "✅ Code checked out to: $(pwd)"
-        
-        # Step 3: Setup Node.js
-        echo ""
-        echo "⚙️ Setting up Node.js..."
-        # This runs automatically from the action
-        
-        echo "Phase 1 complete ✅"
 
+    - name: 📥 Checkout code (Phase 1.2)
+      uses: actions/checkout@v4
+      id: checkout
+
+    - name: ⚙️ Setup Node.js (Phase 1.3)
+      uses: actions/setup-node@v4
+      id: setup-node
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    # ─────────────────────────────────────────────────────
+    # PHASE 2: Dependencies & Tools
+    # ─────────────────────────────────────────────────────
     - name: 🟩 PHASE 2: Dependencies & Tools
       id: phase2
       run: |
@@ -64,6 +61,9 @@ jobs:
         
         echo "Phase 2 complete ✅"
 
+    # ─────────────────────────────────────────────────────
+    # PHASE 3: Debug & Validation
+    # ─────────────────────────────────────────────────────
     - name: 🟨 PHASE 3: Debug & Validation
       id: phase3
       run: |
@@ -86,13 +86,16 @@ jobs:
         echo ""
         
         echo "📊 Environment summary:"
-        echo "- Docker: ${{ steps.phase1.outputs.docker_available == 'true' && 'Available' || 'Not Available' }}"
+        echo "- Docker: ${{ steps.check-docker.outputs.docker_available == 'true' && 'Available' || 'Not Available' }}"
         echo "- Node.js: $(node --version)"
         echo "- npm: $(npm --version)"
         echo "- Playwright: $(npx playwright --version 2>/dev/null || echo 'Not found')"
         
         echo "Phase 3 complete ✅"
 
+    # ─────────────────────────────────────────────────────
+    # PHASE 4: Test Execution
+    # ─────────────────────────────────────────────────────
     - name: 🟥 PHASE 4: Test Execution
       id: phase4
       run: |
@@ -117,6 +120,9 @@ jobs:
         echo "Phase 4 complete ✅"
       continue-on-error: true
 
+    # ─────────────────────────────────────────────────────
+    # PHASE 5: Report Analysis
+    # ─────────────────────────────────────────────────────
     - name: 🟪 PHASE 5: Report Analysis
       id: phase5
       run: |
@@ -156,6 +162,9 @@ jobs:
         
         echo "Phase 5 complete ✅"
 
+    # ─────────────────────────────────────────────────────
+    # PHASE 6: Artifact Upload
+    # ─────────────────────────────────────────────────────
     - name: 🟦 PHASE 6: Artifact Upload
       id: phase6
       run: |
@@ -185,7 +194,7 @@ jobs:
         echo "Phase 6 complete ✅"
 
     # ─────────────────────────────────────────────────────
-    # ARTIFACT UPLOAD STEPS
+    # ACTUAL UPLOAD STEPS
     # ─────────────────────────────────────────────────────
     - name: 📤 Upload Playwright HTML report
       if: steps.phase5.outputs.report_exists == 'true'
@@ -209,7 +218,7 @@ jobs:
     - name: 📋 Create Horizontal Pipeline Summary
       if: always()
       run: |
-        echo "## 🎭 Playwright CI - Horizontal Pipeline" >> $GITHUB_STEP_SUMMARY
+        echo "## 🎭 Docker Playwright CI - Horizontal Pipeline" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
         echo "### 📊 Pipeline Visualization" >> $GITHUB_STEP_SUMMARY
@@ -270,7 +279,7 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "| Phase | Color | Status | Key Outputs |" >> $GITHUB_STEP_SUMMARY
         echo "|-------|-------|--------|-------------|" >> $GITHUB_STEP_SUMMARY
-        echo "| 🔵 **1. Environment** | Blue | ✅ | Docker: ${{ steps.phase1.outputs.docker_available == 'true' && '✅' || '⚠️' }}, Node.js: $(node --version) |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🔵 **1. Environment** | Blue | ✅ | Docker: ${{ steps.check-docker.outputs.docker_available == 'true' && '✅' || '⚠️' }}, Node.js: $(node --version) |" >> $GITHUB_STEP_SUMMARY
         echo "| 🟢 **2. Dependencies** | Green | ✅ | Dependencies installed, Browsers ready |" >> $GITHUB_STEP_SUMMARY
         echo "| 🟡 **3. Validation** | Yellow | ✅ | Config validated, Files checked |" >> $GITHUB_STEP_SUMMARY
         echo "| 🔴 **4. Execution** | Red | ${{ steps.phase4.outcome == 'success' && '✅' || '❌' }} | Exit code: ${{ steps.phase4.outputs.exit_code || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
