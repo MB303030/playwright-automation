@@ -14,15 +14,12 @@ module.exports = defineConfig({
   workers: 4,
 
   // 📊 CI REPORTING (Allure only)
-    reporter: [
-    ['list'], // console output
-    ['allure-playwright'], // Allure reporting
-    ['playwright-html-reporter', { // HTML reporting
+     reporter: [
+    ['list'],
+    ['allure-playwright'],
+    ['html', { 
       outputFolder: 'playwright-report',
-      open: false,
-      showPerformance: true,
-      showBrowser: true,
-      showOS: true,
+      open: 'never'  
     }]
   ],
 
