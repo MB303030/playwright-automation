@@ -14,8 +14,10 @@ module.exports = defineConfig({
     ['allure-playwright'],
     ['html', { 
       outputFolder: 'playwright-report',
-      open: 'never'   // removed attachmentsBaseURL & attachTests
-    }]
+      open: 'never'
+    }],
+    // Add json reporter for better CI integration
+    ['json', { outputFile: 'test-results/test-results.json' }]
   ],
 
   // 🧪 TEST ARTIFACTS - FIXED PATH CONFIGURATION
