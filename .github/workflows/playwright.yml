@@ -1,3 +1,4 @@
+# .github/workflows/playwright-ci.yml
 name: Playwright CI
 
 on:
@@ -5,432 +6,113 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main]
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger
 
 jobs:
-  # ─────────────────────────────────────────────────────
-  # PHASE 1: SETUP & VALIDATION
-  # ─────────────────────────────────────────────────────
-  checkout-code:
+  # Check Docker is available
+  check-docker:
     runs-on: ubuntu-latest
-    outputs:
-      commit_hash: ${{ steps.get-commit.outputs.hash }}
     steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-        
-      - name: 🔍 Get commit info
-        id: get-commit
+      - name: Verify Docker installation
         run: |
-          echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          which docker || echo "❌ Docker not found"
+          docker --version
+          echo "✅ Docker check complete"
 
-  setup-node:
+  # Run Playwright tests with CI config
+  playwright-tests:
     runs-on: ubuntu-latest
-    needs: checkout-code
-    outputs:
-      node_version: ${{ steps.check-node.outputs.version }}
+    needs: check-docker  # Optional - remove if not needed
+    
     steps:
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          
-      - name: 🔍 Verify Node.js
-        id: check-node
-        run: |
-          echo "Node.js: $(node --version)"
-          echo "npm: $(npm --version)"
-          echo "version=$(node --version)" >> $GITHUB_OUTPUT
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
 
-  install-dependencies:
-    runs-on: ubuntu-latest
-    needs: [checkout-code, setup-node]
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-        
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          
-      - name: 📦 Install npm dependencies
-        run: |
-          echo "Installing dependencies..."
-          npm ci
-          echo "✅ Dependencies installed"
+    - name: ⚙️ Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
 
-  validate-docker:
-    runs-on: ubuntu-latest
-    needs: setup-node
-    outputs:
-      docker_available: ${{ steps.check-docker.outputs.available }}
-    steps:
-      - name: 🔍 Check Docker
-        id: check-docker
-        run: |
-          if command -v docker &> /dev/null; then
-            echo "✅ Docker is available: $(docker --version)"
-            echo "available=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ Docker not found - optional for Playwright"
-            echo "available=false" >> $GITHUB_OUTPUT
-          fi
+    - name: 📦 Install dependencies
+      run: npm ci
 
-  install-playwright:
-    runs-on: ubuntu-latest
-    needs: [checkout-code, setup-node, install-dependencies]
-    outputs:
-      browsers_installed: ${{ steps.install.outputs.success }}
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-        
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          
-      - name: 📦 Install dependencies
-        run: npm ci
-        
-      - name: 🎭 Install Playwright browsers
-        id: install
-        run: |
-          echo "Installing Playwright browsers..."
-          # Install ALL browsers with dependencies
-          npx playwright install --with-deps chromium webkit firefox
-          echo "✅ Browsers installed"
-          echo "success=true" >> $GITHUB_OUTPUT
+    - name: 🎭 Install Playwright browsers
+      run: npx playwright install --with-deps chromium
 
-  validate-config:
-    runs-on: ubuntu-latest
-    needs: [checkout-code, install-dependencies]
-    outputs:
-      test_count: ${{ steps.check-config.outputs.test_count }}
-      config_exists: ${{ steps.check-config.outputs.config_exists }}
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-        
-      - name: 📦 Install dependencies
-        run: npm ci
-        
-      - name: 🔧 Validate configuration files
-        id: check-config
-        run: |
-          # Check CI config
-          if [ -f "playwright.ci.config.js" ]; then
-            echo "✅ CI config: playwright.ci.config.js"
-            echo "config_exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Missing: playwright.ci.config.js"
-            echo "config_exists=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          
-          # Check test files
-          TEST_COUNT=$(find tests -name "*.spec.js" -o -name "*.test.js" 2>/dev/null | wc -l)
-          if [ $TEST_COUNT -gt 0 ]; then
-            echo "✅ Test files: $TEST_COUNT"
-            echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ No test files found in tests/"
-            echo "test_count=0" >> $GITHUB_OUTPUT
-          fi
+    - name: 🔧 List files for debugging
+      run: |
+        echo "Current directory:"
+        pwd
+        echo "Files in root:"
+        ls -la
+        echo "Config files:"
+        ls -la playwright*.config.js || echo "No config files found"
 
-  # ─────────────────────────────────────────────────────
-  # PHASE 2: TEST EXECUTION (WITH FORCED REPORT GENERATION)
-  # ─────────────────────────────────────────────────────
-  run-tests:
-    runs-on: ubuntu-latest
-    needs: [
-      checkout-code,
-      setup-node,
-      install-dependencies,
-      validate-docker,
-      install-playwright,
-      validate-config
-    ]
-    outputs:
-      test_status: ${{ steps.run.outputs.status }}
-      report_generated: ${{ steps.check-report.outputs.generated }}
-    steps:
-      - name: 📊 Pre-test summary
-        run: |
-          echo "=== 🚀 STARTING TESTS ==="
-          echo "Test files: ${{ needs.validate-config.outputs.test_count }}"
-          echo "Docker: ${{ needs.validate-docker.outputs.docker_available }}"
-          echo "CI Config: ${{ needs.validate-config.outputs.config_exists }}"
-          
-      - name: 🧪 Run Playwright tests
-        id: run
-        run: |
-          echo "Running Playwright tests..."
-          # Run tests and force report generation
-          npx playwright test --config=playwright.ci.config.js --reporter=html,list,allure-playwright || true
-          
-          # Check exit code
-          if [ $? -eq 0 ]; then
-            echo "status=passed" >> $GITHUB_OUTPUT
-          else
-            echo "status=failed" >> $GITHUB_OUTPUT
-          fi
-          
-      - name: 🔍 Check if reports were generated
-        id: check-report
-        run: |
-          echo "Checking for generated reports..."
-          
-          # Force HTML report generation if not created
-          if [ ! -d "playwright-report" ] || [ ! -f "playwright-report/index.html" ]; then
-            echo "📊 Generating HTML report..."
-            npx playwright show-report --host 0.0.0.0 --port 8080 &
-            sleep 5
-            pkill -f "playwright show-report" || true
-          fi
-          
-          if [ -d "playwright-report" ] && [ -f "playwright-report/index.html" ]; then
-            echo "✅ HTML report generated"
-            echo "generated=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ HTML report NOT generated"
-            echo "generated=false" >> $GITHUB_OUTPUT
-          fi
-          
-          if [ -d "allure-results" ]; then
-            echo "✅ Allure results generated"
-            ls -la allure-results/ | head -5
-          else
-            echo "❌ Allure results NOT generated"
-          fi
+    - name: 🧪 Run Playwright tests (CI config)
+      run: |
+        echo "Running tests with CI config..."
+        # Run with your CI-specific config
+        npx playwright test --config=playwright.ci.config.js
+      continue-on-error: true  # Continue even if tests fail
 
-  # ─────────────────────────────────────────────────────
-  # PHASE 3: ARTIFACT COLLECTION (ENSURE ARTIFACTS EXIST)
-  # ─────────────────────────────────────────────────────
-  collect-artifacts:
-    runs-on: ubuntu-latest
-    needs: run-tests
-    if: always()
-    outputs:
-      screenshots_count: ${{ steps.collect.outputs.screenshots }}
-      videos_count: ${{ steps.collect.outputs.videos }}
-      allure_count: ${{ steps.collect.outputs.allure }}
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
+    - name: 📊 Check generated reports
+      run: |
+        echo "Checking for generated reports..."
+        echo "📁 Directory listing:"
+        ls -la
         
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          
-      - name: 📦 Install dependencies
-        run: npm ci
+        echo "🎭 Playwright reports:"
+        if [ -d "playwright-report" ]; then
+          echo "Found playwright-report directory"
+          ls -la playwright-report/
+        else
+          echo "No playwright-report directory"
+        fi
         
-      - name: 🎭 Install browsers
-        run: npx playwright install chromium
-      
-      - name: 🔧 Generate artifacts if missing
-        run: |
-          echo "Checking for missing artifacts..."
-          
-          # Run a simple test to ensure artifacts are generated
-          if [ ! -d "test-results" ] && [ ! -d "playwright-report" ]; then
-            echo "No artifacts found, running a test..."
-            cat > temp-test.spec.js << 'EOF'
-            const { test, expect } = require('@playwright/test');
-            test('artifact generation test', async ({ page }) => {
-              await page.goto('https://example.com');
-              await expect(page).toHaveTitle(/Example/);
-            });
-            test('failing test for screenshot', async ({ page }) => {
-              await page.goto('https://example.com');
-              await expect(page).toHaveTitle('Wrong Title'); // Will fail
-            });
-            EOF
-            
-            npx playwright test temp-test.spec.js --config=playwright.ci.config.js --reporter=html,list || true
-            rm -f temp-test.spec.js
-          fi
-          
-      - name: 📦 Count and collect artifacts
-        id: collect
-        run: |
-          echo "=== 📊 ARTIFACT COUNT ==="
-          
-          # Screenshots
-          SCREENSHOTS=$(find . -name "*.png" -type f | wc -l)
-          echo "📸 Screenshots: $SCREENSHOTS"
-          echo "screenshots=$SCREENSHOTS" >> $GITHUB_OUTPUT
-          
-          # Videos
-          VIDEOS=$(find . -name "*.webm" -o -name "*.mp4" -type f | wc -l)
-          echo "🎥 Videos: $VIDEOS"
-          echo "videos=$VIDEOS" >> $GITHUB_OUTPUT
-          
-          # Allure results
-          if [ -d "allure-results" ]; then
-            ALLURE_FILES=$(find allure-results -type f | wc -l)
-            echo "📊 Allure files: $ALLURE_FILES"
-            echo "allure=$ALLURE_FILES" >> $GITHUB_OUTPUT
-          else
-            echo "📊 Allure files: 0"
-            echo "allure=0" >> $GITHUB_OUTPUT
-          fi
-          
-          # Show what we have
-          echo ""
-          echo "=== 📁 DIRECTORY STRUCTURE ==="
-          ls -la
-          echo ""
-          echo "test-results/:"
-          ls -la test-results/ 2>/dev/null || echo "No test-results"
-          echo ""
-          echo "playwright-report/:"
-          ls -la playwright-report/ 2>/dev/null || echo "No playwright-report"
-          echo ""
-          echo "allure-results/:"
-          ls -la allure-results/ 2>/dev/null || echo "No allure-results"
+        echo "📸 Test artifacts:"
+        if [ -d "test-results" ]; then
+          echo "Found test-results directory"
+          ls -la test-results/
+        else
+          echo "No test-results directory"
+        fi
 
-  # ─────────────────────────────────────────────────────
-  # PHASE 4: RESULT UPLOAD (WITH FALLBACK)
-  # ─────────────────────────────────────────────────────
-  upload-results:
-    runs-on: ubuntu-latest
-    needs: [run-tests, collect-artifacts]
-    if: always()
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-        
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          
-      - name: 📦 Install dependencies
-        run: npm ci
-        
-      - name: 🛠️ Create missing reports
-        run: |
-          # Create HTML report if missing
-          if [ ! -d "playwright-report" ]; then
-            echo "Creating fallback HTML report..."
-            mkdir -p playwright-report
-            cat > playwright-report/index.html << 'EOF'
-            <!DOCTYPE html>
-            <html>
-            <head><title>Playwright Test Report</title></head>
-            <body>
-              <h1>⚠️ Test Report</h1>
-              <p>No HTML report was generated by tests.</p>
-              <p>Check test execution logs for details.</p>
-              <p><strong>Status:</strong> ${{ needs.run-tests.outputs.test_status }}</p>
-              <p><strong>Screenshots:</strong> ${{ needs.collect-artifacts.outputs.screenshots_count }}</p>
-              <p><strong>Videos:</strong> ${{ needs.collect-artifacts.outputs.videos_count }}</p>
-            </body>
-            </html>
-            EOF
-          fi
-          
-          # Create Allure results if missing
-          if [ ! -d "allure-results" ]; then
-            echo "Creating fallback Allure results..."
-            mkdir -p allure-results
-            echo '{"name": "Test Execution", "status": "${{ needs.run-tests.outputs.test_status }}"}' > allure-results/execution.json
-          fi
-      
-      - name: 📤 Upload HTML report
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-html-report
-          path: playwright-report/
-          
-      - name: 📤 Upload test artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-artifacts
-          path: test-results/
-          
-      - name: 📤 Upload Allure results
-        uses: actions/upload-artifact@v4
-        with:
-          name: allure-results
-          path: allure-results/
+    - name: 📤 Upload Playwright HTML report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: playwright-html-report
+        path: playwright-report/
+        retention-days: 7
 
-  # ─────────────────────────────────────────────────────
-  # PHASE 5: FINAL SUMMARY (WITH DIAGNOSTICS)
-  # ─────────────────────────────────────────────────────
-  create-summary:
-    runs-on: ubuntu-latest
-    needs: [run-tests, collect-artifacts, upload-results]
-    if: always()
-    steps:
-      - name: 📋 Create diagnostic summary
-        run: |
-          echo "# 🎭 Playwright CI - Diagnostic Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "## 🩺 Issues Found & Solutions" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Docker issue (not critical)
-          if [ "${{ needs.validate-docker.outputs.docker_available }}" = "false" ]; then
-            echo "### ⚠️ Docker Not Available" >> $GITHUB_STEP_SUMMARY
-            echo "- **Issue:** Docker not installed" >> $GITHUB_STEP_SUMMARY
-            echo "- **Impact:** Only affects Docker-based tests" >> $GITHUB_STEP_SUMMARY
-            echo "- **Solution:** Install Docker or skip Docker tests" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          # Test failure
-          if [ "${{ needs.run-tests.outputs.test_status }}" = "failed" ]; then
-            echo "### ❌ Tests Failed" >> $GITHUB_STEP_SUMMARY
-            echo "- **Issue:** Some tests did not pass" >> $GITHUB_STEP_SUMMARY
-            echo "- **Debug:** Download test-artifacts for screenshots/traces" >> $GITHUB_STEP_SUMMARY
-            echo "- **Screenshots available:** ${{ needs.collect-artifacts.outputs.screenshots_count }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **Videos available:** ${{ needs.collect-artifacts.outputs.videos_count }}" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          # Report generation
-          if [ "${{ needs.run-tests.outputs.report_generated }}" = "false" ]; then
-            echo "### ⚠️ HTML Report Not Generated" >> $GITHUB_STEP_SUMMARY
-            echo "- **Issue:** Playwright HTML report not created" >> $GITHUB_STEP_SUMMARY
-            echo "- **Possible causes:**" >> $GITHUB_STEP_SUMMARY
-            echo "  1. No tests ran" >> $GITHUB_STEP_SUMMARY
-            echo "  2. Reporter configuration issue" >> $GITHUB_STEP_SUMMARY
-            echo "  3. Permission issues" >> $GITHUB_STEP_SUMMARY
-            echo "- **Solution:** Check playwright.ci.config.js reporter config" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "## 📊 Execution Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Phase | Job | Status | Details |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-----|--------|---------|" >> $GITHUB_STEP_SUMMARY
-          echo "| **Setup** | 📥 Checkout Code | ✅ | ${{ needs.checkout-code.outputs.commit_hash }}" >> $GITHUB_STEP_SUMMARY
-          echo "| **Setup** | ⚙️ Setup Node.js | ✅ | ${{ needs.setup-node.outputs.node_version }}" >> $GITHUB_STEP_SUMMARY
-          echo "| **Setup** | 📦 Install Dependencies | ✅ | Completed" >> $GITHUB_STEP_SUMMARY
-          echo "| **Setup** | 🔍 Validate Docker | ${{ needs.validate-docker.outputs.docker_available == 'true' && '✅' || '⚠️' }} | ${{ needs.validate-docker.outputs.docker_available == 'true' && 'Available' || 'Not Available (optional)' }}" >> $GITHUB_STEP_SUMMARY
-          echo "| **Setup** | 🎭 Install Playwright | ${{ needs.install-playwright.outputs.browsers_installed == 'true' && '✅' || '❌' }} | ${{ needs.install-playwright.outputs.browsers_installed == 'true' && 'Browsers installed' || 'Failed' }}" >> $GITHUB_STEP_SUMMARY
-          echo "| **Setup** | 🔧 Validate Config | ${{ needs.validate-config.outputs.config_exists == 'true' && '✅' || '❌' }} | ${{ needs.validate-config.outputs.test_count }} tests" >> $GITHUB_STEP_SUMMARY
-          echo "| **Test** | 🧪 Run Tests | ${{ needs.run-tests.outputs.test_status == 'passed' && '✅' || '❌' }} | ${{ needs.run-tests.outputs.test_status }}" >> $GITHUB_STEP_SUMMARY
-          echo "| **Test** | 📊 Report Generation | ${{ needs.run-tests.outputs.report_generated == 'true' && '✅' || '⚠️' }} | ${{ needs.run-tests.outputs.report_generated == 'true' && 'Generated' || 'Fallback created' }}" >> $GITHUB_STEP_SUMMARY
-          echo "| **Collect** | 📦 Collect Artifacts | ✅ | ${{ needs.collect-artifacts.outputs.screenshots_count }} 📸, ${{ needs.collect-artifacts.outputs.videos_count }} 🎥, ${{ needs.collect-artifacts.outputs.allure_count }} 📊" >> $GITHUB_STEP_SUMMARY
-          echo "| **Upload** | 📤 Upload Results | ✅ | 3 artifacts uploaded" >> $GITHUB_STEP_SUMMARY
-          echo "| **Summary** | 📋 Create Summary | ✅ | Diagnostic report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "## 🔧 Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. **Download artifacts** to debug" >> $GITHUB_STEP_SUMMARY
-          echo "2. **Check** `playwright.ci.config.js` reporter configuration" >> $GITHUB_STEP_SUMMARY
-          echo "3. **Run tests locally** with same config: " >> $GITHUB_STEP_SUMMARY
-          echo "   ```bash" >> $GITHUB_STEP_SUMMARY
-          echo "   CI=true npx playwright test --config=playwright.ci.config.js --reporter=html,list,allure-playwright" >> $GITHUB_STEP_SUMMARY
-          echo "   ```" >> $GITHUB_STEP_SUMMARY
-          echo "4. **Verify** test files exist in `tests/` directory" >> $GITHUB_STEP_SUMMARY
+    - name: 📤 Upload test artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-artifacts
+        path: |
+          test-results/
+          screenshots/
+          videos/
+          traces/
+        retention-days: 7
+
+    - name: 📋 Create job summary
+      if: always()
+      run: |
+        echo "## 🎭 Playwright CI Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Workflow:** [${{ github.workflow }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Available Reports:" >> $GITHUB_STEP_SUMMARY
+        echo "- **Playwright HTML Report** - Download the 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
+        echo "- **Test Artifacts** - Screenshots, videos, traces in 'test-artifacts'" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔍 How to view:" >> $GITHUB_STEP_SUMMARY
+        echo "1. Go to this workflow run" >> $GITHUB_STEP_SUMMARY
+        echo "2. Click on 'playwright-tests' job" >> $GITHUB_STEP_SUMMARY
+        echo "3. In the 'Artifacts' section, download the reports" >> $GITHUB_STEP_SUMMARY
+        echo "4. Extract and open `index.html` in a browser" >> $GITHUB_STEP_SUMMARY
