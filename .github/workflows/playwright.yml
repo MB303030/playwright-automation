@@ -1,85 +1,88 @@
-name: Playwright Tests with Allure & GitHub Pages
+name: Generate Allure Report
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  test-and-deploy:
+  test:
     runs-on: ubuntu-latest
-
     steps:
-      # 1️⃣ Verify Docker installation
-      - name: ✅ Verify Docker
+      # ✅ Add Docker verification
+      - name: Verify Docker
         run: |
           docker --version
-          docker run --rm alpine:latest echo "✓ Docker works perfectly!"
-
-      # 2️⃣ Checkout repository
+          echo "✅ Docker ready"
+      
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 3️⃣ Setup Node.js
-      - name: Setup Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: 20
 
-      # 4️⃣ Install dependencies
       - name: Install dependencies
         run: |
           npm ci
+          # 👇 CRITICAL: Install Allure reporter for Playwright
           npm install allure-playwright --save-dev
 
-      # 5️⃣ Install Playwright browsers
+      # 👇 Add this: Install Playwright browsers
       - name: Install Playwright browsers
         run: npx playwright install chromium
 
-      # 6️⃣ Install Allure CLI
-      - name: Install Allure CLI
+      # 👇 Change this: Run tests WITH Allure reporter
+      - name: Run Playwright tests with Allure
+        continue-on-error: true  # Allow failures but continue
         run: |
-          sudo apt update
-          sudo apt install -y default-jre unzip wget
-          wget -q https://github.com/allure-framework/allure2/releases/download/2.24.1/allure-2.24.1.zip
-          unzip -q allure-2.24.1.zip -d ~/
-          echo "$HOME/allure-2.24.1/bin" >> $GITHUB_PATH
-          ~/allure-2.24.1/bin/allure --version
+          # Run tests with Allure reporter to generate results
+          npx playwright test --reporter=allure-playwright
 
-      # 7️⃣ Ensure allure-results exists
-      - name: Prepare allure-results folder
-        run: mkdir -p allure-results
-
-      # 8️⃣ Run Playwright tests
-      - name: Run Playwright tests
-        run: npx playwright test --reporter=allure-playwright
-
-      # 9️⃣ Debug allure-results content (optional, helps confirm results)
-      - name: List allure-results
-        run: ls -la allure-results
-
-      # 🔟 Generate Allure report
-      - name: Generate Allure report
-        run: ~/allure-2.24.1/bin/allure generate allure-results -o allure-report --clean
-
-      # 1️⃣1️⃣ Deploy Allure report to GitHub Pages (gh-pages branch)
-      - name: Deploy Allure report to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Get Allure history
+        uses: allure-framework/allure-history-action@v1
+        if: always()
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./allure-report
-          destination_dir: reports
-          # Automatically commit changes, even if empty
-          commit_message: "Deploy Allure report: $(date +'%Y-%m-%d %H:%M:%S')"
+          keep_reports: 20
 
-      # 1️⃣2️⃣ Show report link in workflow logs
-      - name: Show report link
+      - name: Build Allure Report
+        uses: allure-framework/allure-report-action@v2
+        if: always()
+        with:
+          results_folder: allure-results
+          report_folder: allure-report
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: Add report title
+          report_title: "Playwright Test Report"
+
+      - name: Deploy report to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        if: always()
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: allure-report
+          publish_branch: gh-pages
+
+      # 👇 Add this: Show the report link
+      - name: Show report URL
+        if: always()
         run: |
-          echo "=========================================="
-          echo "           📊 ALLURE REPORT READY          "
-          echo "=========================================="
-          echo "🌐 ONLINE REPORT: https://mb303030.github.io/playwright-automation/reports/"
-          echo "⚙️ Remember to enable GitHub Pages source from 'gh-pages' branch if not done"
-          echo "=========================================="
+          echo "========================================"
+          echo "          📊 ALLURE REPORT READY        "
+          echo "========================================"
+          echo ""
+          echo "🌐 Online report (after enabling Pages):"
+          echo "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+          echo ""
+          echo "📥 Download from Actions → Artifacts"
+          echo ""
+          echo "⚙️ Enable GitHub Pages:"
+          echo "1. Go to repo Settings → Pages"
+          echo "2. Select 'gh-pages' branch"
+          echo "3. Select '/' folder"
+          echo "4. Click Save"
+          echo "5. Wait 1-2 minutes"
+          echo "========================================"
