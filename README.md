@@ -14,3 +14,8 @@
 - Headless mode: `npx playwright test`
 - With UI: `npx playwright test --ui`
 - Specific test: `npx playwright test tests/login.spec.js`
+
+## Running Allure report 
+- Headless mode: `npx playwright test -c playwright.ci.config.js 
+- Generate report: `npx allure generate allure-results --clean -o allure-report`
+- Open the report `npx allure open allure-report`
