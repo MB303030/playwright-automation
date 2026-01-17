@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      # 1️⃣ Verify Docker installation
+      # 1️⃣ Verify Docker installation (optional, but good check)
       - name: ✅ Verify Docker installation
         run: |
           echo "=== DOCKER CHECK ==="
@@ -48,7 +48,7 @@ jobs:
           echo "$HOME/allure-2.24.1/bin" >> $GITHUB_PATH
           ~/allure-2.24.1/bin/allure --version
 
-      # 7️⃣ Run Playwright tests (allow failures)
+      # 7️⃣ Run Playwright tests (allow failures so report still generates)
       - name: Run Playwright tests
         run: npx playwright test --reporter=allure-playwright || true
 
@@ -59,7 +59,7 @@ jobs:
           ~/allure-2.24.1/bin/allure generate allure-results -o allure-report --clean
           echo "📊 Allure report generated: allure-report/"
 
-      # 9️⃣ Upload Allure report as artifact (optional)
+      # 9️⃣ Upload Allure report as artifact (optional, good for downloading if needed)
       - name: Upload Allure report artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -77,11 +77,11 @@ jobs:
           path: test-results/
           retention-days: 30
 
-      # 1️⃣1️⃣ Deploy to GitHub Pages (always run)
+      # 1️⃣1️⃣ Deploy Allure report to GitHub Pages under /reports folder
       - name: Deploy Allure report to GitHub Pages
         if: always()
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./allure-report
-          destination_dir: ./reports
+          destination_dir: reports
