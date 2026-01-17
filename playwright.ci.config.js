@@ -1,4 +1,3 @@
-// playwright.ci.config.js
 const { defineConfig, devices } = require('@playwright/test');
 const path = require('path');
 
@@ -10,15 +9,12 @@ module.exports = defineConfig({
   retries: 2,
   workers: 4,
 
-  reporter: [
+  reporter:  [
     ['list'],
     ['allure-playwright'],
     ['html', { 
       outputFolder: 'playwright-report',
-      open: 'never',
-      // Add attachments configuration for HTML reporter
-      attachmentsBaseURL: 'test-results/',
-      attachTests: true
+      open: 'never'   // removed attachmentsBaseURL & attachTests
     }]
   ],
 
