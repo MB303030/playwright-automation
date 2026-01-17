@@ -1,53 +1,209 @@
-name: Generate Allure Report
+name: Allure Report
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      # ✅ Add Docker verification
-      - name: Verify Docker
+      # 1. Docker verification
+      - name: ✅ Verify Docker
         run: |
+          echo "=== DOCKER STATUS ==="
           docker --version
-          echo "✅ Docker ready"
+          docker run --rm alpine echo "✓ Docker works"
+          echo ""
       
+      # 2. Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
-
+      
+      # 3. Debug: Check what config files exist
+      - name: Debug - Check config files
+        run: |
+          echo "=== CONFIG FILES ==="
+          find . -name "playwright*config*" -type f
+          echo ""
+          echo "=== YOUR CI CONFIG ==="
+          cat playwright.ci.config.js || echo "File not found!"
+          echo ""
+      
+      # 4. Setup Node
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
+      
+      # 5. Install dependencies
       - name: Install dependencies
         run: |
+          echo "Installing dependencies..."
           npm ci
-          # 👇 CRITICAL: Install Allure reporter for Playwright
+          # CRITICAL: Install Allure reporter
           npm install allure-playwright --save-dev
-
-      # 👇 Add this: Install Playwright browsers
+          echo "✅ Dependencies installed"
+      
+      # 6. Install browsers
       - name: Install Playwright browsers
-        run: npx playwright install chromium
-
-      # 👇 Change this: Run tests WITH Allure reporter
-      - name: Run Playwright tests with Allure
-        continue-on-error: true  # Allow failures but continue
         run: |
-          # Run tests with Allure reporter to generate results
-          npx playwright test --reporter=allure-playwright
+          echo "Installing Playwright browsers..."
+          npx playwright install chromium
+          echo "✅ Browsers installed"
+      
+      # 7. Create Allure results directory
+      - name: Create Allure results directory
+        run: |
+          echo "Creating allure-results directory..."
+          mkdir -p allure-results
+          echo "✅ Directory created"
+      
+      # 8. 🎯 CRITICAL FIX: Run tests with YOUR CI CONFIG
+      - name: Run Playwright tests with Allure
+        continue-on-error: true
+        run: |
+          echo "=== RUNNING TESTS WITH CI CONFIG ==="
+          # Use YOUR playwright.ci.config.js
+          npx playwright test \
+            --config=playwright.ci.config.js \
+            --reporter=allure-playwright
+          
+          # Check if results were created
+          echo ""
+          echo "=== CHECKING RESULTS ==="
+          if [ -d "allure-results" ]; then
+            echo "✅ allure-results exists"
+            ls -la allure-results/ | head -10
+            echo "File count: $(find allure-results -type f | wc -l)"
+          else
+            echo "❌ allure-results NOT created!"
+            # Check if Allure is in your CI config
+            echo "Checking if Allure is in playwright.ci.config.js..."
+            grep -i "allure" playwright.ci.config.js || echo "Allure not found in config"
+          fi
+      
+      # 9. Check if Allure is configured in your CI config
+      - name: Debug - Check Allure in CI config
+        run: |
+          echo "=== CHECKING ALLURE IN CI CONFIG ==="
+          if grep -q "allure-playwright" playwright.ci.config.js; then
+            echo "✅ Allure reporter found in playwright.ci.config.js"
+          else
+            echo "❌ Allure reporter NOT in playwright.ci.config.js"
+            echo ""
+            echo "=== FIX NEEDED ==="
+            echo "Add this to playwright.ci.config.js:"
+            echo ""
+            echo "reporter: ["
+            echo "  ['list'],"
+            echo "  ['allure-playwright', {"
+            echo "    outputFolder: 'allure-results',"
+            echo "    detail: true,"
+            echo "    suiteTitle: true,"
+            echo "  }]"
+            echo "],"
+          fi
+      
+      # 10. If Allure not in config, add it temporarily
+      - name: Add Allure to CI config if missing
+        if: failure()
+        run: |
+          echo "=== ADDING ALLURE TO CI CONFIG ==="
+          if ! grep -q "allure-playwright" playwright.ci.config.js; then
+            echo "Adding Allure reporter to config..."
+            # Create backup
+            cp playwright.ci.config.js playwright.ci.config.js.backup
+            
+            # Add Allure reporter
+            cat > playwright.ci.config.js << 'EOF'
+            const { defineConfig, devices } = require('@playwright/test');
 
+            module.exports = defineConfig({
+              testDir: './tests',
+              fullyParallel: true,
+              forbidOnly: !!process.env.CI,
+              retries: process.env.CI ? 2 : 0,
+              workers: process.env.CI ? 4 : 4,
+              
+              // 👇 ADDED ALLURE REPORTER
+              reporter: [
+                ['list'],
+                ['playwright-html-reporter', {
+                  outputFolder: 'playwright-report',
+                  open: false,
+                  showPerformance: true,
+                  showBrowser: true,
+                  showOS: true,
+                }],
+                ['allure-playwright', {
+                  outputFolder: 'allure-results',
+                  detail: true,
+                  suiteTitle: true,
+                  environmentInfo: {
+                    CI: process.env.CI || 'false',
+                    Node: process.version,
+                    OS: process.platform,
+                  }
+                }]
+              ],
+              
+              use: {
+                screenshot: 'only-on-failure',
+                video: 'retain-on-failure',
+                trace: 'retain-on-failure',
+                headless: true,
+              },
+
+              projects: [
+                {
+                  name: 'chrome-web',
+                  use: { 
+                    ...devices['Desktop Chrome'],
+                    viewport: { width: 1920, height: 1080 },
+                  },
+                },
+                {
+                  name: 'mobile',
+                  grep: /@Mobile/,
+                  use: { 
+                    ...devices['iPhone 12'],
+                    isMobile: true,
+                    hasTouch: true,
+                  },
+                },
+              ],
+            });
+            EOF
+            
+            echo "✅ Updated playwright.ci.config.js with Allure"
+          else
+            echo "✅ Allure already in config"
+          fi
+      
+      # 11. Run tests again with updated config
+      - name: Run tests with updated config
+        if: failure()
+        continue-on-error: true
+        run: |
+          echo "=== RUNNING TESTS WITH UPDATED CONFIG ==="
+          npx playwright test \
+            --config=playwright.ci.config.js \
+            --reporter=allure-playwright
+          
+          echo "Results created:"
+          ls -la allure-results/ 2>/dev/null || echo "No results"
+      
+      # 12. Get Allure history
       - name: Get Allure history
         uses: allure-framework/allure-history-action@v1
         if: always()
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           keep_reports: 20
-
+      
+      # 13. Build Allure Report
       - name: Build Allure Report
         uses: allure-framework/allure-report-action@v2
         if: always()
@@ -55,9 +211,9 @@ jobs:
           results_folder: allure-results
           report_folder: allure-report
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          # Optional: Add report title
           report_title: "Playwright Test Report"
-
+      
+      # 14. Deploy to GitHub Pages
       - name: Deploy report to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         if: always()
@@ -65,24 +221,33 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: allure-report
           publish_branch: gh-pages
-
-      # 👇 Add this: Show the report link
-      - name: Show report URL
+      
+      # 15. Upload artifact
+      - name: Upload Allure report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report/
+          retention-days: 30
+      
+      # 16. Show final status
+      - name: Show final status
         if: always()
         run: |
           echo "========================================"
-          echo "          📊 ALLURE REPORT READY        "
+          echo "           FINAL STATUS                 "
           echo "========================================"
-          echo ""
-          echo "🌐 Online report (after enabling Pages):"
-          echo "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
-          echo ""
-          echo "📥 Download from Actions → Artifacts"
-          echo ""
-          echo "⚙️ Enable GitHub Pages:"
-          echo "1. Go to repo Settings → Pages"
-          echo "2. Select 'gh-pages' branch"
-          echo "3. Select '/' folder"
-          echo "4. Click Save"
-          echo "5. Wait 1-2 minutes"
+          if [ -f "allure-report/index.html" ]; then
+            echo "✅ SUCCESS: Allure report generated!"
+            echo "📊 View at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
+            echo "📥 Download from Actions → Artifacts"
+          else
+            echo "❌ FAILED: No Allure report generated"
+            echo ""
+            echo "=== NEXT STEPS ==="
+            echo "1. Check if playwright.ci.config.js has Allure reporter"
+            echo "2. Check debug logs above"
+            echo "3. Run tests locally: npx playwright test --config=playwright.ci.config.js --reporter=allure-playwright"
+          fi
           echo "========================================"
