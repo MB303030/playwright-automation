@@ -1,4 +1,4 @@
-name: Playwright CI ON DEMAND with docker
+name: Docker Playwright CI ON DEMAND with Docker
 
 on:
   workflow_dispatch:
