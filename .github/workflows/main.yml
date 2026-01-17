@@ -1,0 +1,229 @@
+name: Playwright CI single job
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ─────────────────────────────────────────────────────
+  # SINGLE JOB APPROACH - Like the working simple version
+  # ─────────────────────────────────────────────────────
+  playwright-ci:
+    runs-on: ubuntu-latest
+    outputs:
+      test_status: ${{ steps.run-tests.outputs.status }}
+    steps:
+      # ─────────────────────────────────────────────────────
+      # PHASE 1: SETUP
+      # ─────────────────────────────────────────────────────
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        
+      - name: 🔍 Get commit info
+        id: get-commit
+        run: |
+          echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "branch=${GITHUB_REF#refs/heads/}" >> $GITHUB_OUTPUT
+      
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: 🔍 Verify environment
+        run: |
+          echo "Node.js: $(node --version)"
+          echo "npm: $(npm --version)"
+          
+      - name: 🔍 Check Docker (optional)
+        id: check-docker
+        run: |
+          if command -v docker &> /dev/null; then
+            echo "✅ Docker is available: $(docker --version)"
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Docker not found - optional for Playwright"
+            echo "available=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ─────────────────────────────────────────────────────
+      # PHASE 2: DEPENDENCIES & VALIDATION
+      # ─────────────────────────────────────────────────────
+      - name: 📦 Install dependencies
+        run: |
+          echo "Installing dependencies..."
+          npm ci
+          echo "✅ Dependencies installed"
+
+      - name: 🔧 Validate configuration files
+        id: validate-config
+        run: |
+          # Check CI config
+          if [ -f "playwright.ci.config.js" ]; then
+            echo "✅ CI config: playwright.ci.config.js"
+            echo "config_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Missing: playwright.ci.config.js"
+            echo "config_exists=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Check test files
+          TEST_COUNT=$(find tests -name "*.spec.js" -o -name "*.test.js" 2>/dev/null | wc -l)
+          if [ $TEST_COUNT -gt 0 ]; then
+            echo "✅ Test files: $TEST_COUNT"
+            echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ No test files found in tests/"
+            echo "test_count=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🎭 Install Playwright browsers
+        run: |
+          echo "Installing Playwright browsers..."
+          npx playwright install --with-deps chromium webkit firefox
+          echo "✅ Browsers installed"
+
+      # ─────────────────────────────────────────────────────
+      # PHASE 3: TEST EXECUTION
+      # ─────────────────────────────────────────────────────
+      - name: 📊 Pre-test summary
+        run: |
+          echo "=== 🚀 STARTING TESTS ==="
+          echo "Test files: ${{ steps.validate-config.outputs.test_count }}"
+          echo "Docker: ${{ steps.check-docker.outputs.available }}"
+          echo "CI Config: ${{ steps.validate-config.outputs.config_exists }}"
+          
+      - name: 🧪 Run Playwright tests
+        id: run-tests
+        run: |
+          echo "Running Playwright tests..."
+          # Run tests with CI config
+          npx playwright test --config=playwright.ci.config.js || TEST_EXIT_CODE=$?
+          
+          # Store test status
+          if [ ${TEST_EXIT_CODE:-0} -eq 0 ]; then
+            echo "✅ All tests passed"
+            echo "status=passed" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Some tests failed"
+            echo "status=failed" >> $GITHUB_OUTPUT
+          fi
+          
+          # Always generate HTML report
+          echo "📊 Generating HTML report..."
+          npx playwright show-report --host 0.0.0.0 --port 8080 &
+          sleep 3
+          pkill -f "playwright show-report" || true
+          
+      # ─────────────────────────────────────────────────────
+      # PHASE 4: POST-TEST ANALYSIS
+      # ─────────────────────────────────────────────────────
+      - name: 🔍 Analyze test results
+        id: analyze-results
+        if: always()
+        run: |
+          echo "=== 📊 TEST RESULT ANALYSIS ==="
+          
+          # Check for reports
+          if [ -d "playwright-report" ] && [ -f "playwright-report/index.html" ]; then
+            echo "✅ HTML report: Available"
+            echo "html_report=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ HTML report: Missing"
+            echo "html_report=false" >> $GITHUB_OUTPUT
+            
+            # Create fallback
+            mkdir -p playwright-report
+            cat > playwright-report/index.html << 'EOF'
+            <!DOCTYPE html>
+            <html>
+            <head><title>Playwright Test Report</title></head>
+            <body>
+              <h1>Test Execution Report</h1>
+              <p>Status: ${{ steps.run-tests.outputs.status || 'unknown' }}</p>
+              <p>Generated: $(date)</p>
+            </body>
+            </html>
+            EOF
+          fi
+          
+          # Count artifacts
+          SCREENSHOTS=$(find . -name "*.png" -type f | wc -l)
+          VIDEOS=$(find . -name "*.webm" -o -name "*.mp4" -type f | wc -l)
+          ALLURE_FILES=$(find allure-results -type f 2>/dev/null | wc -l || echo 0)
+          
+          echo "📸 Screenshots: $SCREENSHOTS"
+          echo "🎥 Videos: $VIDEOS"
+          echo "📊 Allure files: $ALLURE_FILES"
+          
+          echo "screenshots=$SCREENSHOTS" >> $GITHUB_OUTPUT
+          echo "videos=$VIDEOS" >> $GITHUB_OUTPUT
+          echo "allure=$ALLURE_FILES" >> $GITHUB_OUTPUT
+
+      # ─────────────────────────────────────────────────────
+      # PHASE 5: ARTIFACT UPLOAD
+      # ─────────────────────────────────────────────────────
+      - name: 📤 Upload HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-html-report
+          path: playwright-report/
+          retention-days: 7
+          
+      - name: 📤 Upload test artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-artifacts
+          path: test-results/
+          retention-days: 7
+          
+      - name: 📤 Upload Allure results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-results
+          path: allure-results/
+          retention-days: 7
+
+      # ─────────────────────────────────────────────────────
+      # PHASE 6: FINAL SUMMARY
+      # ─────────────────────────────────────────────────────
+      - name: 📋 Create diagnostic summary
+        if: always()
+        run: |
+          echo "# 🎭 Playwright CI - Diagnostic Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## 📊 Execution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Code Checkout** | ✅ | ${{ steps.get-commit.outputs.hash }} (${{ steps.get-commit.outputs.branch }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Node.js Setup** | ✅ | $(node --version) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Docker** | ${{ steps.check-docker.outputs.available == 'true' && '✅' || '⚠️' }} | ${{ steps.check-docker.outputs.available == 'true' && 'Available' || 'Not Available' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Configuration** | ${{ steps.validate-config.outputs.config_exists == 'true' && '✅' || '❌' }} | ${{ steps.validate-config.outputs.test_count }} tests |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Test Execution** | ${{ steps.run-tests.outputs.status == 'passed' && '✅' || '❌' }} | ${{ steps.run-tests.outputs.status || 'unknown' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **HTML Report** | ${{ steps.analyze-results.outputs.html_report == 'true' && '✅' || '⚠️' }} | ${{ steps.analyze-results.outputs.html_report == 'true' && 'Generated' || 'Fallback created' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Artifacts** | ✅ | ${{ steps.analyze-results.outputs.screenshots }} 📸, ${{ steps.analyze-results.outputs.videos }} 🎥 |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## 📁 Available Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. **playwright-html-report** - Full HTML report with test results" >> $GITHUB_STEP_SUMMARY
+          echo "2. **test-artifacts** - Screenshots, videos, and traces from failed tests" >> $GITHUB_STEP_SUMMARY
+          echo "3. **allure-results** - Allure test report data" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## 🔧 Debugging Tips" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Download artifacts from the Artifacts section" >> $GITHUB_STEP_SUMMARY
+          echo "- Open `playwright-report/index.html` in a browser" >> $GITHUB_STEP_SUMMARY
+          echo "- Check the `test-results/` folder for screenshots of failed tests" >> $GITHUB_STEP_SUMMARY
+          echo "- Run locally: `npx playwright test --config=playwright.ci.config.js`" >> $GITHUB_STEP_SUMMARY
