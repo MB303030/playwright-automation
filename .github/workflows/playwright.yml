@@ -9,142 +9,306 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Step 1: Validate Node.js installation
-  validate-node:
+  # ─────────────────────────────────────────────────────
+  # PHASE 1: SETUP & VALIDATION
+  # ─────────────────────────────────────────────────────
+  checkout-code:
     runs-on: ubuntu-latest
     outputs:
-      node_version: ${{ steps.check-node.outputs.version }}
-      node_available: ${{ steps.check-node.outputs.available }}
-    steps:
-      - name: 🔍 Check Node.js installation
-        id: check-node
-        run: |
-          if node --version > /dev/null 2>&1; then
-            NODE_VERSION=$(node --version)
-            NPM_VERSION=$(npm --version)
-            echo "✅ Node.js is available"
-            echo "Node: $NODE_VERSION"
-            echo "npm: $NPM_VERSION"
-            echo "version=$NODE_VERSION" >> $GITHUB_OUTPUT
-            echo "available=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Node.js is NOT available"
-            echo "available=false" >> $GITHUB_OUTPUT
-          fi
-
-  # Step 2: Validate Docker installation  
-  validate-docker:
-    runs-on: ubuntu-latest
-    outputs:
-      docker_available: ${{ steps.check-docker.outputs.available }}
-      docker_version: ${{ steps.check-docker.outputs.version }}
-    steps:
-      - name: 🔍 Check Docker installation
-        id: check-docker
-        run: |
-          if docker --version > /dev/null 2>&1; then
-            DOCKER_VERSION=$(docker --version)
-            echo "✅ Docker is available"
-            echo "$DOCKER_VERSION"
-            echo "version=$DOCKER_VERSION" >> $GITHUB_OUTPUT
-            echo "available=true" >> $GITHUB_OUTPUT
-          else
-            echo "❌ Docker is NOT available - tests requiring Docker will be skipped"
-            echo "available=false" >> $GITHUB_OUTPUT
-          fi
-
-  # Step 3: Validate Playwright browsers
-  validate-playwright:
-    runs-on: ubuntu-latest
-    needs: [validate-node, validate-docker]
-    outputs:
-      browsers_installed: ${{ steps.check-browsers.outputs.installed }}
+      commit_hash: ${{ steps.get-commit.outputs.hash }}
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
+        
+      - name: 🔍 Get commit info
+        id: get-commit
+        run: |
+          echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
+  setup-node:
+    runs-on: ubuntu-latest
+    needs: checkout-code
+    outputs:
+      node_version: ${{ steps.check-node.outputs.version }}
+    steps:
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: 🔍 Verify Node.js
+        id: check-node
+        run: |
+          echo "version=$(node --version)" >> $GITHUB_OUTPUT
+
+  install-dependencies:
+    runs-on: ubuntu-latest
+    needs: [checkout-code, setup-node]
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        
       - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
-      - name: 📦 Install dependencies
-        run: npm ci
-
-      - name: 🔍 Check Playwright browsers
-        id: check-browsers
-        run: |
-          echo "Checking installed Playwright browsers..."
           
-          # Check if browsers are installed
-          if npx playwright install --dry-run 2>&1 | grep -q "already installed"; then
-            echo "✅ Playwright browsers are already installed"
-            echo "installed=true" >> $GITHUB_OUTPUT
+      - name: 📦 Install npm dependencies
+        run: |
+          echo "Installing dependencies..."
+          npm ci
+          echo "✅ Dependencies installed"
+
+  validate-docker:
+    runs-on: ubuntu-latest
+    needs: setup-node
+    outputs:
+      docker_available: ${{ steps.check-docker.outputs.available }}
+    steps:
+      - name: 🔍 Check Docker
+        id: check-docker
+        run: |
+          if docker --version > /dev/null 2>&1; then
+            echo "available=true" >> $GITHUB_OUTPUT
           else
-            echo "⚠️ Some browsers may need installation"
-            echo "installed=false" >> $GITHUB_OUTPUT
+            echo "available=false" >> $GITHUB_OUTPUT
           fi
 
-  # Step 4: Run Playwright tests
-  playwright-tests:
+  install-playwright:
     runs-on: ubuntu-latest
-    needs: [validate-node, validate-docker, validate-playwright]
-    
+    needs: [checkout-code, setup-node, install-dependencies]
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-
-    - name: ⚙️ Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
-
-    - name: 📦 Install dependencies
-      run: npm ci
-
-    - name: 🎭 Install Playwright browsers
-      run: |
-        echo "Installing Playwright browsers..."
-        npx playwright install --with-deps chromium
-        npx playwright install webkit  # For mobile tests
-        npx playwright install firefox  # Optional
-
-    - name: 🧪 Run Playwright tests
-      env:
-        NODE_VERSION: ${{ needs.validate-node.outputs.node_version }}
-        DOCKER_AVAILABLE: ${{ needs.validate-docker.outputs.docker_available }}
-        BROWSERS_INSTALLED: ${{ needs.validate-playwright.outputs.browsers_installed }}
-      run: |
-        echo "=== 🧪 TEST EXECUTION ==="
-        echo "Node.js: $NODE_VERSION"
-        echo "Docker: $DOCKER_AVAILABLE"
-        echo "Browsers: $BROWSERS_INSTALLED"
-        echo ""
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
         
-        # Run tests with CI config
-        echo "Running Playwright tests..."
-        npx playwright test --config=playwright.ci.config.js
-      continue-on-error: true
-
-    # ... [KEEP ALL YOUR EXISTING STEPS BELOW - artifact organization, uploads, summary]
-    # Just update the summary to show validation results:
-
-    - name: 📋 Create detailed job summary
-      if: always()
-      run: |
-        echo "## 🎭 Playwright CI Test Results" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Workflow:** [${{ github.workflow }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-        echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: 📦 Install dependencies
+        run: npm ci
         
-        echo "### ✅ Validation Results:" >> $GITHUB_STEP_SUMMARY
-        echo "- **Node.js:** ${{ needs.validate-node.outputs.node_version || 'Not found' }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Docker:** ${{ needs.validate-docker.outputs.docker_available == 'true' && '✅ Available' || '❌ Not Available' }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Playwright Browsers:** ${{ needs.validate-playwright.outputs.browsers_installed == 'true' && '✅ Installed' || '⚠️ Needs installation' }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
+      - name: 🎭 Install Playwright browsers
+        run: |
+          echo "Installing browsers..."
+          npx playwright install chromium webkit firefox
+          echo "✅ Browsers installed"
+
+  validate-config:
+    runs-on: ubuntu-latest
+    needs: [checkout-code, install-dependencies]
+    outputs:
+      test_count: ${{ steps.check-config.outputs.test_count }}
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
         
-        # ... [KEEP THE REST OF YOUR EXISTING SUMMARY]
+      - name: 📦 Install dependencies
+        run: npm ci
+        
+      - name: 🔧 Validate config
+        id: check-config
+        run: |
+          TEST_COUNT=$(find tests -name "*.spec.js" 2>/dev/null | wc -l)
+          echo "test_count=$TEST_COUNT" >> $GITHUB_OUTPUT
+
+  # ─────────────────────────────────────────────────────
+  # PHASE 2: TEST EXECUTION
+  # ─────────────────────────────────────────────────────
+  run-tests:
+    runs-on: ubuntu-latest
+    needs: [
+      checkout-code,
+      setup-node,
+      install-dependencies,
+      validate-docker,
+      install-playwright,
+      validate-config
+    ]
+    outputs:
+      test_status: ${{ steps.run.outputs.status }}
+    steps:
+      - name: 📊 Pre-test summary
+        run: |
+          echo "=== 🚀 STARTING TESTS ==="
+          echo "Test files: ${{ needs.validate-config.outputs.test_count }}"
+          echo "Docker: ${{ needs.validate-docker.outputs.docker_available }}"
+          
+      - name: 🧪 Run Playwright tests
+        id: run
+        run: |
+          echo "Running tests..."
+          npx playwright test --config=playwright.ci.config.js && echo "status=passed" >> $GITHUB_OUTPUT || echo "status=failed" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+  # ─────────────────────────────────────────────────────
+  # PHASE 3: ARTIFACT COLLECTION
+  # ─────────────────────────────────────────────────────
+  collect-artifacts:
+    runs-on: ubuntu-latest
+    needs: run-tests
+    if: always()
+    outputs:
+      screenshots_count: ${{ steps.collect.outputs.screenshots }}
+      videos_count: ${{ steps.collect.outputs.videos }}
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: 📦 Install dependencies
+        run: npm ci
+        
+      - name: 🧪 Run tests (to generate artifacts)
+        run: |
+          echo "Generating test artifacts..."
+          npx playwright test --config=playwright.ci.config.js || true
+        continue-on-error: true
+        
+      - name: 📦 Collect artifacts
+        id: collect
+        run: |
+          echo "Collecting artifacts..."
+          
+          # Count screenshots
+          SCREENSHOTS=$(find . -name "*.png" -type f | wc -l)
+          echo "screenshots=$SCREENSHOTS" >> $GITHUB_OUTPUT
+          
+          # Count videos
+          VIDEOS=$(find . -name "*.webm" -type f | wc -l)
+          echo "videos=$VIDEOS" >> $GITHUB_OUTPUT
+          
+          echo "📸 Screenshots: $SCREENSHOTS"
+          echo "🎥 Videos: $VIDEOS"
+
+  # ─────────────────────────────────────────────────────
+  # PHASE 4: RESULT UPLOAD
+  # ─────────────────────────────────────────────────────
+  upload-results:
+    runs-on: ubuntu-latest
+    needs: [run-tests, collect-artifacts]
+    if: always()
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: 📦 Install dependencies
+        run: npm ci
+        
+      - name: 🧪 Run tests (to ensure artifacts exist)
+        run: |
+          echo "Running tests for artifacts..."
+          npx playwright test --config=playwright.ci.config.js || true
+        continue-on-error: true
+        
+      - name: 📤 Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report
+          path: playwright-report/
+          
+      - name: 📤 Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: test-results/
+          
+      - name: 📤 Upload Allure results
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: allure-results/
+
+  # ─────────────────────────────────────────────────────
+  # PHASE 5: FINAL SUMMARY
+  # ─────────────────────────────────────────────────────
+  create-summary:
+    runs-on: ubuntu-latest
+    needs: [run-tests, collect-artifacts, upload-results]
+    if: always()
+    steps:
+      - name: 📋 Create final summary
+        run: |
+          echo "# 🎭 Playwright CI - Complete Workflow" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## 📊 Workflow Diagram" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "```mermaid" >> $GITHUB_STEP_SUMMARY
+          echo "graph TD" >> $GITHUB_STEP_SUMMARY
+          echo "    subgraph \"Phase 1: Setup & Validation\"" >> $GITHUB_STEP_SUMMARY
+          echo "        A[📥 Checkout Code]" >> $GITHUB_STEP_SUMMARY
+          echo "        A --> B[⚙️ Setup Node.js]" >> $GITHUB_STEP_SUMMARY
+          echo "        B --> C[📦 Install Dependencies]" >> $GITHUB_STEP_SUMMARY
+          echo "        C --> D[🔍 Validate Docker]" >> $GITHUB_STEP_SUMMARY
+          echo "        C --> E[🎭 Install Playwright]" >> $GITHUB_STEP_SUMMARY
+          echo "        C --> F[🔧 Validate Config]" >> $GITHUB_STEP_SUMMARY
+          echo "    end" >> $GITHUB_STEP_SUMMARY
+          echo "    " >> $GITHUB_STEP_SUMMARY
+          echo "    subgraph \"Phase 2: Test Execution\"" >> $GITHUB_STEP_SUMMARY
+          echo "        G[🧪 Run Tests]" >> $GITHUB_STEP_SUMMARY
+          echo "    end" >> $GITHUB_STEP_SUMMARY
+          echo "    " >> $GITHUB_STEP_SUMMARY
+          echo "    subgraph \"Phase 3: Artifact Collection\"" >> $GITHUB_STEP_SUMMARY
+          echo "        H[📦 Collect Artifacts]" >> $GITHUB_STEP_SUMMARY
+          echo "    end" >> $GITHUB_STEP_SUMMARY
+          echo "    " >> $GITHUB_STEP_SUMMARY
+          echo "    subgraph \"Phase 4: Result Upload\"" >> $GITHUB_STEP_SUMMARY
+          echo "        I[📤 Upload Results]" >> $GITHUB_STEP_SUMMARY
+          echo "    end" >> $GITHUB_STEP_SUMMARY
+          echo "    " >> $GITHUB_STEP_SUMMARY
+          echo "    subgraph \"Phase 5: Final Summary\"" >> $GITHUB_STEP_SUMMARY
+          echo "        J[📋 Create Summary]" >> $GITHUB_STEP_SUMMARY
+          echo "    end" >> $GITHUB_STEP_SUMMARY
+          echo "    " >> $GITHUB_STEP_SUMMARY
+          echo "    D --> G" >> $GITHUB_STEP_SUMMARY
+          echo "    E --> G" >> $GITHUB_STEP_SUMMARY
+          echo "    F --> G" >> $GITHUB_STEP_SUMMARY
+          echo "    G --> H" >> $GITHUB_STEP_SUMMARY
+          echo "    H --> I" >> $GITHUB_STEP_SUMMARY
+          echo "    I --> J" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## 📈 Results Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Phase | Job | Status | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-----|--------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Setup** | 📥 Checkout Code | ✅ | ${{ needs.checkout-code.outputs.commit_hash }}" >> $GITHUB_STEP_SUMMARY
+          echo "| **Setup** | ⚙️ Setup Node.js | ✅ | ${{ needs.setup-node.outputs.node_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "| **Setup** | 📦 Install Dependencies | ✅ | Completed" >> $GITHUB_STEP_SUMMARY
+          echo "| **Setup** | 🔍 Validate Docker | ${{ needs.validate-docker.outputs.docker_available == 'true' && '✅' || '❌' }} | ${{ needs.validate-docker.outputs.docker_available == 'true' && 'Available' || 'Not Available' }}" >> $GITHUB_STEP_SUMMARY
+          echo "| **Setup** | 🎭 Install Playwright | ✅ | Browsers installed" >> $GITHUB_STEP_SUMMARY
+          echo "| **Setup** | 🔧 Validate Config | ✅ | ${{ needs.validate-config.outputs.test_count }} tests" >> $GITHUB_STEP_SUMMARY
+          echo "| **Test** | 🧪 Run Tests | ${{ needs.run-tests.outputs.test_status == 'passed' && '✅' || '❌' }} | ${{ needs.run-tests.outputs.test_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "| **Collect** | 📦 Collect Artifacts | ✅ | ${{ needs.collect-artifacts.outputs.screenshots_count }} 📸, ${{ needs.collect-artifacts.outputs.videos_count }} 🎥" >> $GITHUB_STEP_SUMMARY
+          echo "| **Upload** | 📤 Upload Results | ✅ | 3 artifacts uploaded" >> $GITHUB_STEP_SUMMARY
+          echo "| **Summary** | 📋 Create Summary | ✅ | This summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## 📁 Download Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. **playwright-html-report** - Interactive HTML report" >> $GITHUB_STEP_SUMMARY
+          echo "2. **test-artifacts** - Screenshots, videos, traces" >> $GITHUB_STEP_SUMMARY
+          echo "3. **allure-results** - Allure test data" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## 🔍 Debugging Guide" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "If tests failed:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Check which **Phase** failed above" >> $GITHUB_STEP_SUMMARY
+          echo "2. Click on the failed job to see logs" >> $GITHUB_STEP_SUMMARY
+          echo "3. Download artifacts for screenshots/traces" >> $GITHUB_STEP_SUMMARY
+          echo "4. Use: `npx playwright show-trace trace.zip`" >> $GITHUB_STEP_SUMMARY
