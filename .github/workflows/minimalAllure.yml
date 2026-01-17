@@ -1,58 +1,67 @@
-name: Minimal Allure
+playwright-tests:
+  runs-on: ubuntu-latest
+  needs: check-docker
 
-on:
-  workflow_dispatch:
+  steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
 
-jobs:
-  playwright-tests:
-    runs-on: ubuntu-latest
+    - name: ⚙️ Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
 
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
+    - name: 📦 Install dependencies
+      run: npm ci
 
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
+    - name: 🎭 Install Playwright browsers
+      run: npx playwright install --with-deps chromium webkit firefox
 
-      - name: 📦 Install dependencies
-        run: npm ci
+    - name: 🧪 Run Playwright tests (CI config)
+      run: npx playwright test --config=playwright.ci.config.js
+      continue-on-error: true
 
-      - name: 🎭 Install Playwright browsers
-        run: npx playwright install --with-deps chromium webkit firefox
+    - name: 📦 Install Allure CLI (required by this action)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y unzip wget default-jre
 
-      - name: 🧪 Run Playwright tests
-        run: npx playwright test --config=playwright.ci.config.js
-        continue-on-error: true
+    # 🟡 Generate the Allure report with history action
+    - name: 📊 Generate Allure Report
+      uses: simple-elf/allure-report-action@master
+      id: allure_report
+      with:
+        allure_results: "allure-results"
+        allure_report: "allure-report"
+        gh_pages: "gh-pages"            # folder to checkout Pages branch (can be empty)
+        allure_history: "allure-history" # folder where history is stored
 
-      - name: 📊 Upload Playwright HTML report
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-html-report
-          path: playwright-report/
-          retention-days: 7
+    - name: 📤 Upload Allure HTML report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: allure-html-report
+        path: allure-report/
+        retention-days: 7
 
-      - name: 🦄 Generate Allure report (artifact + link)
-        uses: andgineer/allure-report@v3.6
-        id: allure
-        with:
-          allure-results: "allure-results"
-          report-name: "Allure Report"
-          website: false   # disable automatic GitHub Pages deploy
-          summary: true     # generate summary file
+    - name: 📤 Upload test artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-artifacts
+        path: |
+          test-results/
+          screenshots/
+          videos/
+          traces/
+        retention-days: 7
 
-      - name: 📤 Upload Allure HTML report
-        uses: actions/upload-artifact@v4
-        with:
-          name: allure-html-report
-          path: allure-report/
-          retention-days: 7
-
-      - name: 📋 Job summary
-        run: |
-          echo "## 🎭 Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "- Playwright HTML report: Download 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
-          echo "- Allure HTML report: Download 'allure-html-report' artifact" >> $GITHUB_STEP_SUMMARY
-          echo "- Allure report page: ${{ steps.allure.outputs.report-page }}" >> $GITHUB_STEP_SUMMARY
+    - name: 📋 Job summary
+      if: always()
+      run: |
+        echo "### 📊 Allure Report" >> $GITHUB_STEP_SUMMARY
+        echo "- Download the **Allure HTML Report** artifact" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🧾 Playwright HTML Report" >> $GITHUB_STEP_SUMMARY
+        echo "- Download the **Playwright HTML Report** artifact" >> $GITHUB_STEP_SUMMARY
