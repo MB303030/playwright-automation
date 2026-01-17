@@ -1,152 +1,60 @@
-name: Allure CI ON DEMAND Allure
+name: Test Allure MINIMAL
 
 on:
   workflow_dispatch:  # Manual trigger ONLY
 
 jobs:
-  # ─────────────────────────────────────────────────────
-  # PHASE 0: CHECK DOCKER (OPTIONAL)
-  # ─────────────────────────────────────────────────────
-  check-docker:
+  test-allure:
     runs-on: ubuntu-latest
-    steps:
-      - name: Verify Docker installation
-        run: |
-          which docker || echo "❌ Docker not found"
-          docker --version
-          echo "✅ Docker check complete"
-
-  # ─────────────────────────────────────────────────────
-  # PHASE 1: RUN PLAYWRIGHT TESTS
-  # ─────────────────────────────────────────────────────
-  playwright-tests:
-    runs-on: ubuntu-latest
-    needs: check-docker
     
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: 📦 Install dependencies
-        run: npm ci
-
-      - name: 🎭 Install Playwright browsers
-        run: npx playwright install --with-deps chromium webkit firefox
-
-      - name: 🔧 List files for debugging
+      - name: 📦 Install Node.js & Allure CLI
         run: |
-          echo "Current directory:"
-          pwd
-          echo "Files in root:"
-          ls -la
-          echo "Config files:"
-          ls -la playwright*.config.js || echo "No config files found"
+          npm install -g allure-commandline
+          allure --version
 
-      - name: 🧪 Run Playwright tests (CI config)
+      - name: 🧪 Run tests to generate Allure results
         run: |
-          echo "Running tests with CI config..."
-          npx playwright test --config=playwright.ci.config.js
-        continue-on-error: true
+          # Create a simple test
+          cat > test.js << 'EOF'
+          const { test, expect } = require('@playwright/test');
+          test('test 1', async ({ page }) => {
+            await page.goto('https://example.com');
+            await expect(page).toHaveTitle('Example Domain');
+          });
+          EOF
+          
+          # Run with Allure reporter
+          npx playwright test test.js --reporter=allure-playwright
 
-      # ──────────────────────────────────────────────
-      # Generate Allure report
-      # ──────────────────────────────────────────────
-      - name: 🦄 Generate Allure HTML report
-        uses: andgineer/allure-report@v3.6
-        id: allure_report
-        if: always()
-        with:
-          allure-results: "allure-results"
-          reports-site-path: "allure-report"    # output folder
-          report-name: "Playwright Tests"
-          ci-name: "GitHub Actions"
-          max-reports: 10
-          summary: true
+      - name: 📊 Generate Allure HTML report
+        run: |
+          echo "Generating Allure HTML..."
+          allure generate allure-results -o allure-report --clean
+          
+          echo "=== Report Status ==="
+          if [ -f "allure-report/index.html" ]; then
+            echo "✅ SUCCESS: Allure HTML report created!"
+            ls -la allure-report/
+          else
+            echo "❌ FAILED: No HTML report"
+            ls -la
+          fi
 
-      # ──────────────────────────────────────────────
-      # Upload Allure HTML report as artifact
-      # ──────────────────────────────────────────────
       - name: 📤 Upload Allure HTML report
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: allure-html-report
           path: allure-report/
-          retention-days: 7
 
-      # ──────────────────────────────────────────────
-      # Upload Playwright HTML report
-      # ──────────────────────────────────────────────
-      - name: 📤 Upload Playwright HTML report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-html-report
-          path: playwright-report/
-          retention-days: 7
-
-      # ──────────────────────────────────────────────
-      # Upload Allure raw results as backup
-      # ──────────────────────────────────────────────
-      - name: 📤 Upload Allure raw results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: allure-results-raw
-          path: allure-results/
-          retention-days: 7
-
-      # ──────────────────────────────────────────────
-      # Upload test artifacts
-      # ──────────────────────────────────────────────
-      - name: 📤 Upload test artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-artifacts
-          path: |
-            test-results/
-          retention-days: 7
-
-      # ──────────────────────────────────────────────
-      # Job summary with artifact links
-      # ──────────────────────────────────────────────
-      - name: 📋 Create job summary
-        if: always()
+      - name: 📋 Show result
         run: |
-          echo "## 🎭 Playwright CI Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎭 Allure Test Result" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Workflow:** [${{ github.workflow }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### Status: $([ -f 'allure-report/index.html' ] && echo '✅ SUCCESS' || echo '❌ FAILED')" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "### 📊 Available Reports:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -d "playwright-report" ] && [ -f "playwright-report/index.html" ]; then
-            echo "✅ **Playwright HTML Report** - Download 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          if [ -d "allure-report" ]; then
-            echo "✅ **Allure HTML Report** - Download 'allure-html-report' artifact" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          if [ -d "test-results" ]; then
-            echo "✅ **Test Artifacts** - Screenshots, videos, traces in 'test-artifacts'" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "### 🔍 How to view reports:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. Download the artifacts from this job" >> $GITHUB_STEP_SUMMARY
-          echo "2. Extract ZIPs" >> $GITHUB_STEP_SUMMARY
-          echo "3. Open `index.html` from Playwright or Allure report in browser" >> $GITHUB_STEP_SUMMARY
+          echo "### Download the 'allure-html-report' artifact" >> $GITHUB_STEP_SUMMARY
+          echo "### Extract and open index.html in your browser" >> $GITHUB_STEP_SUMMARY
