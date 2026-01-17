@@ -1,4 +1,3 @@
-# .github/workflows/playwright-ci.yml
 name: Playwright CI
 
 on:
@@ -170,8 +169,8 @@ jobs:
         id: run
         run: |
           echo "Running Playwright tests..."
-          # Force report generation even if tests fail
-          npx playwright test --config=playwright.ci.config.js || true
+          # Run tests and force report generation
+          npx playwright test --config=playwright.ci.config.js --reporter=html,list,allure-playwright || true
           
           # Check exit code
           if [ $? -eq 0 ]; then
@@ -185,18 +184,20 @@ jobs:
         run: |
           echo "Checking for generated reports..."
           
+          # Force HTML report generation if not created
+          if [ ! -d "playwright-report" ] || [ ! -f "playwright-report/index.html" ]; then
+            echo "📊 Generating HTML report..."
+            npx playwright show-report --host 0.0.0.0 --port 8080 &
+            sleep 5
+            pkill -f "playwright show-report" || true
+          fi
+          
           if [ -d "playwright-report" ] && [ -f "playwright-report/index.html" ]; then
             echo "✅ HTML report generated"
             echo "generated=true" >> $GITHUB_OUTPUT
           else
             echo "❌ HTML report NOT generated"
             echo "generated=false" >> $GITHUB_OUTPUT
-            
-            # Try to generate report manually
-            echo "Attempting to generate report..."
-            npx playwright show-report --host 0.0.0.0 --port 8080 &
-            sleep 3
-            pkill -f "playwright" || true
           fi
           
           if [ -d "allure-results" ]; then
@@ -251,7 +252,7 @@ jobs:
             });
             EOF
             
-            npx playwright test temp-test.spec.js --config=playwright.ci.config.js || true
+            npx playwright test temp-test.spec.js --config=playwright.ci.config.js --reporter=html,list || true
             rm -f temp-test.spec.js
           fi
           
@@ -430,6 +431,6 @@ jobs:
           echo "2. **Check** `playwright.ci.config.js` reporter configuration" >> $GITHUB_STEP_SUMMARY
           echo "3. **Run tests locally** with same config: " >> $GITHUB_STEP_SUMMARY
           echo "   ```bash" >> $GITHUB_STEP_SUMMARY
-          echo "   CI=true npx playwright test --config=playwright.ci.config.js" >> $GITHUB_STEP_SUMMARY
+          echo "   CI=true npx playwright test --config=playwright.ci.config.js --reporter=html,list,allure-playwright" >> $GITHUB_STEP_SUMMARY
           echo "   ```" >> $GITHUB_STEP_SUMMARY
           echo "4. **Verify** test files exist in `tests/` directory" >> $GITHUB_STEP_SUMMARY
