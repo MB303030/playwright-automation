@@ -9,20 +9,28 @@ on:
   workflow_dispatch:  # Manual trigger
 
 jobs:
-  # Check Docker is available
-  check-docker:
+  # Validate Docker installation
+  validate-docker:
     runs-on: ubuntu-latest
+    outputs:
+      docker_available: ${{ steps.check-docker.outputs.available }}
     steps:
-      - name: Verify Docker installation
+      - name: 🔍 Check Docker installation
+        id: check-docker
         run: |
-          which docker || echo "❌ Docker not found"
-          docker --version
-          echo "✅ Docker check complete"
+          if docker --version > /dev/null 2>&1; then
+            echo "✅ Docker is available"
+            echo "Docker version: $(docker --version)"
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Docker is NOT available - tests requiring Docker will be skipped"
+            echo "available=false" >> $GITHUB_OUTPUT
+          fi
 
   # Run Playwright tests with CI config
   playwright-tests:
     runs-on: ubuntu-latest
-    needs: check-docker  # Optional - remove if not needed
+    needs: validate-docker
     
     steps:
     - name: 📥 Checkout code
@@ -38,45 +46,113 @@ jobs:
       run: npm ci
 
     - name: 🎭 Install Playwright browsers
-      run: npx playwright install --with-deps chromium
+      run: |
+        echo "Installing Playwright browsers..."
+        npx playwright install --with-deps chromium
+        npx playwright install webkit  # For mobile tests
+        npx playwright install firefox  # Optional
 
     - name: 🔧 List files for debugging
       run: |
-        echo "Current directory:"
-        pwd
-        echo "Files in root:"
+        echo "=== 📁 FILE STRUCTURE ==="
+        echo "Current directory: $(pwd)"
+        echo ""
+        echo "Root files:"
         ls -la
+        echo ""
         echo "Config files:"
         ls -la playwright*.config.js || echo "No config files found"
+        echo ""
+        echo "Test directory:"
+        ls -la tests/ || echo "No tests directory"
+        echo "=== END ==="
 
-    - name: 🧪 Run Playwright tests (CI config)
+    - name: 🧪 Run Playwright tests
+      env:
+        DOCKER_AVAILABLE: ${{ needs.validate-docker.outputs.docker_available }}
       run: |
-        echo "Running tests with CI config..."
-        # Run with your CI-specific config
+        echo "=== 🧪 TEST EXECUTION ==="
+        echo "Docker available: $DOCKER_AVAILABLE"
+        
+        # Run tests with CI config
+        echo "Running Playwright tests..."
         npx playwright test --config=playwright.ci.config.js
       continue-on-error: true  # Continue even if tests fail
 
-    - name: 📊 Check generated reports
+    - name: 🔍 Locate and organize artifacts
+      if: always()
       run: |
-        echo "Checking for generated reports..."
-        echo "📁 Directory listing:"
-        ls -la
+        echo "=== 🔍 ARTIFACT LOCATION ==="
         
-        echo "🎭 Playwright reports:"
-        if [ -d "playwright-report" ]; then
-          echo "Found playwright-report directory"
-          ls -la playwright-report/
+        # Create a summary file of all artifacts
+        echo "# 📊 Artifact Locations" > artifact-locations.md
+        echo "Generated: $(date)" >> artifact-locations.md
+        echo "" >> artifact-locations.md
+        
+        # Check for screenshots
+        echo "## 📸 Screenshots" >> artifact-locations.md
+        if find . -name "*.png" -type f | grep -q "."; then
+          find . -name "*.png" -type f | head -20 | while read file; do
+            echo "- \`$file\`" >> artifact-locations.md
+          done
+          echo "✅ Screenshots found"
         else
-          echo "No playwright-report directory"
+          echo "- No screenshots found" >> artifact-locations.md
+          echo "❌ No screenshots"
         fi
         
-        echo "📸 Test artifacts:"
-        if [ -d "test-results" ]; then
-          echo "Found test-results directory"
-          ls -la test-results/
+        # Check for videos
+        echo "" >> artifact-locations.md
+        echo "## 🎥 Videos" >> artifact-locations.md
+        if find . -name "*.webm" -o -name "*.mp4" | grep -q "."; then
+          find . -name "*.webm" -o -name "*.mp4" | head -20 | while read file; do
+            echo "- \`$file\`" >> artifact-locations.md
+          done
+          echo "✅ Videos found"
         else
-          echo "No test-results directory"
+          echo "- No videos found" >> artifact-locations.md
+          echo "❌ No videos"
         fi
+        
+        # Check for trace files
+        echo "" >> artifact-locations.md
+        echo "## 🔍 Trace Files" >> artifact-locations.md
+        if find . -name "trace.zip" -type f | grep -q "."; then
+          find . -name "trace.zip" -type f | head -20 | while read file; do
+            echo "- \`$file\`" >> artifact-locations.md
+          done
+          echo "✅ Trace files found"
+        else
+          echo "- No trace files found" >> artifact-locations.md
+          echo "❌ No trace files"
+        fi
+        
+        # Copy all artifacts to a central location for easy download
+        echo ""
+        echo "=== 📦 ORGANIZING ARTIFACTS ==="
+        mkdir -p all-artifacts
+        mkdir -p all-artifacts/screenshots
+        mkdir -p all-artifacts/videos
+        mkdir -p all-artifacts/traces
+        
+        # Find and copy screenshots
+        find . -name "*.png" -type f -exec cp {} all-artifacts/screenshots/ \; 2>/dev/null || true
+        echo "Screenshots copied: $(ls all-artifacts/screenshots/ | wc -l)"
+        
+        # Find and copy videos
+        find . -name "*.webm" -o -name "*.mp4" -type f -exec cp {} all-artifacts/videos/ \; 2>/dev/null || true
+        echo "Videos copied: $(ls all-artifacts/videos/ | wc -l)"
+        
+        # Find and copy traces
+        find . -name "trace.zip" -type f -exec cp {} all-artifacts/traces/ \; 2>/dev/null || true
+        echo "Traces copied: $(ls all-artifacts/traces/ | wc -l)"
+        
+        # Show what we found
+        echo ""
+        echo "=== 📁 FINAL ARTIFACT STRUCTURE ==="
+        echo "all-artifacts/"
+        find all-artifacts/ -type f | sort | head -30
+        echo "=== END ==="
 
     - name: 📤 Upload Playwright HTML report
       uses: actions/upload-artifact@v4
@@ -86,19 +162,36 @@ jobs:
         path: playwright-report/
         retention-days: 7
 
-    - name: 📤 Upload test artifacts
+    - name: 📤 Upload ALL test artifacts
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: test-artifacts
+        name: all-test-artifacts
         path: |
+          all-artifacts/
           test-results/
-          screenshots/
-          videos/
-          traces/
         retention-days: 7
 
-    - name: 📋 Create job summary
+    - name: 📤 Upload organized artifacts by type
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: artifacts-by-type
+        path: |
+          all-artifacts/screenshots/
+          all-artifacts/videos/
+          all-artifacts/traces/
+        retention-days: 7
+
+    - name: 📤 Upload Allure results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: allure-results
+        path: allure-results/
+        retention-days: 7
+
+    - name: 📋 Create detailed job summary
       if: always()
       run: |
         echo "## 🎭 Playwright CI Test Results" >> $GITHUB_STEP_SUMMARY
@@ -106,13 +199,45 @@ jobs:
         echo "**Workflow:** [${{ github.workflow }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
         echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
         echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Docker Status:** ${{ needs.validate-docker.outputs.docker_available == 'true' && '✅ Available' || '❌ Not Available' }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📊 Available Reports:" >> $GITHUB_STEP_SUMMARY
-        echo "- **Playwright HTML Report** - Download the 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
-        echo "- **Test Artifacts** - Screenshots, videos, traces in 'test-artifacts'" >> $GITHUB_STEP_SUMMARY
+        
+        # Show artifact counts if available
+        if [ -d "all-artifacts" ]; then
+          SCREENSHOTS_COUNT=$(find all-artifacts/screenshots/ -name "*.png" -type f 2>/dev/null | wc -l || echo 0)
+          VIDEOS_COUNT=$(find all-artifacts/videos/ -name "*.webm" -o -name "*.mp4" 2>/dev/null | wc -l || echo 0)
+          TRACES_COUNT=$(find all-artifacts/traces/ -name "*.zip" -type f 2>/dev/null | wc -l || echo 0)
+          
+          echo "### 📊 Generated Artifacts:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Screenshots:** $SCREENSHOTS_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- **Videos:** $VIDEOS_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trace Files:** $TRACES_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "### 📁 Available Downloads:" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔍 How to view:" >> $GITHUB_STEP_SUMMARY
-        echo "1. Go to this workflow run" >> $GITHUB_STEP_SUMMARY
-        echo "2. Click on 'playwright-tests' job" >> $GITHUB_STEP_SUMMARY
-        echo "3. In the 'Artifacts' section, download the reports" >> $GITHUB_STEP_SUMMARY
-        echo "4. Extract and open `index.html` in a browser" >> $GITHUB_STEP_SUMMARY
+        echo "| Artifact | What's Inside | How to Use |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|---------------|------------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **playwright-html-report** | Interactive HTML report | Download, extract, open `index.html` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **all-test-artifacts** | All raw test artifacts | Look in `test-results/` for failed test folders |" >> $GITHUB_STEP_SUMMARY
+        echo "| **artifacts-by-type** | Organized by type | `screenshots/`, `videos/`, `traces/` folders |" >> $GITHUB_STEP_SUMMARY
+        echo "| **allure-results** | Allure test data | Generate report with `allure generate` |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "### 🔍 How to Debug Failed Tests:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "1. **Download artifacts** from this workflow run" >> $GITHUB_STEP_SUMMARY
+        echo "2. **Locate failed test artifacts:**" >> $GITHUB_STEP_SUMMARY
+        echo "   - Screenshots: Look in `all-artifacts/screenshots/` or `test-results/[test-name]/`" >> $GITHUB_STEP_SUMMARY
+        echo "   - Videos: Look in `all-artifacts/videos/` or `test-results/[test-name]/`" >> $GITHUB_STEP_SUMMARY
+        echo "   - Trace files: Look in `all-artifacts/traces/` or `test-results/[test-name]/`" >> $GITHUB_STEP_SUMMARY
+        echo "3. **View trace files:**" >> $GITHUB_STEP_SUMMARY
+        echo "   ```bash" >> $GITHUB_STEP_SUMMARY
+        echo "   npx playwright show-trace path/to/trace.zip" >> $GITHUB_STEP_SUMMARY
+        echo "   ```" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📍 Artifact Storage Locations:" >> $GITHUB_STEP_SUMMARY
+        echo "- Playwright default: `test-results/[project]/[test-name]/`" >> $GITHUB_STEP_SUMMARY
+        echo "- Organized copy: `all-artifacts/[type]/`" >> $GITHUB_STEP_SUMMARY
+        echo "- HTML report: `playwright-report/index.html`" >> $GITHUB_STEP_SUMMARY
