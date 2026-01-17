@@ -1,101 +1,57 @@
-# .github/workflows/playwright-allure.yml
-name: Playwright Tests with Allure Report
+name: Playwright CI (Docker + Allure)
 
 on:
   push:
-    branches: [main, master, develop]
-  pull_request:
-    branches: [main, master]
+    branches:
+      - master
 
 jobs:
-  test:
+  playwright-tests:
     runs-on: ubuntu-latest
-    
+
     steps:
-      # Step 1: Check Docker (optional, just for info)
-      - name: Check Docker is installed
-        run: |
-          docker --version
-          echo "✅ Docker is ready on GitHub's VM!"
-      
-      # Step 2: Get your code
-      - name: Checkout code
+      # 1️⃣ Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
-      
-      # Step 3: Setup Node.js
+
+      # 2️⃣ Setup Node.js (needed for Allure CLI)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      
-      # Step 4: Cache dependencies
-      - name: Cache node modules
-        uses: actions/cache@v3
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-      
-      # Step 5: Install dependencies (including Allure)
-      - name: Install dependencies
-        run: |
-          npm ci
-          # Install Allure reporter for Playwright
-          npm install allure-playwright --save-dev
-      
-      # Step 6: Install Playwright browsers
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-      
-      # Step 7: Install Allure CLI
-      - name: Install Allure CLI
+          node-version: 18
+
+      # 3️⃣ Install Docker (CI side only)
+      - name: Install Docker
         run: |
           sudo apt-get update
-          sudo apt-get install -y default-jre
-          sudo wget -q https://github.com/allure-framework/allure2/releases/download/2.24.1/allure-2.24.1.zip
-          sudo unzip -q allure-2.24.1.zip -d /opt/
-          sudo ln -sf /opt/allure-2.24.1/bin/allure /usr/bin/allure
-          sudo rm allure-2.24.1.zip
-          echo "Allure version: $(allure --version)"
-      
-      # Step 8: Run tests with BOTH reporters
+          sudo apt-get install -y docker.io
+          sudo systemctl start docker
+          docker --version
+
+      # 4️⃣ Build Playwright Docker image
+      - name: Build Docker image
+        run: docker build -t playwright-ci .
+
+      # 5️⃣ Run Playwright tests (Performance + Functional)
       - name: Run Playwright tests
         run: |
-          # Run with both reporters: your existing HTML reporter AND allure
-          npx playwright test \
-            --reporter=list,playwright-html-reporter,allure-playwright
-      
-      # Step 9: Generate Allure HTML report
+          docker run \
+            -e CI=true \
+            -v ${{ github.workspace }}/allure-results:/app/allure-results \
+            playwright-ci
+
+      # 6️⃣ Install Allure CLI
+      - name: Install Allure CLI
+        run: npm install -g allure-commandline
+
+      # 7️⃣ Generate Allure report
       - name: Generate Allure report
-        if: always()
         run: |
           allure generate allure-results --clean -o allure-report
-          echo "📊 Allure report generated in allure-report/"
-      
-      # Step 10: Upload Allure report
+
+      # 8️⃣ Upload Allure report artifact
       - name: Upload Allure report
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
-          path: allure-report/
-          retention-days: 30
-      
-      # Step 11: Upload your existing HTML report
-      - name: Upload HTML report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-html-report
-          path: playwright-report/
-          retention-days: 30
-      
-      # Step 12: Upload videos and screenshots from failures
-      - name: Upload failure evidence
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: failure-evidence
-          path: test-results/
-          retention-days: 30
+          path: allure-report
