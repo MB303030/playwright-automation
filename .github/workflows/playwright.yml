@@ -171,7 +171,7 @@ jobs:
         run: |
           echo "Running Playwright tests..."
           # Force report generation even if tests fail
-          npx playwright test --config=playwright.ci.config.js --reporter=html,line,allure-playwright || true
+          npx playwright test --config=playwright.ci.config.js || true
           
           # Check exit code
           if [ $? -eq 0 ]; then
