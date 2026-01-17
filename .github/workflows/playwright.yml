@@ -1,48 +1,93 @@
-name: Playwright CI Tests
+name: Playwright CI Tests with Allure
 
 on:
   push:
     branches:
-      - main  # Your branch is called "main"
+      - main
 
 jobs:
   test:
     runs-on: ubuntu-latest
     
     steps:
+      # Step 1: Verify Docker is installed (without sudo)
+      - name: ✅ Verify Docker installation
+        run: |
+          echo "=== DOCKER CHECK ==="
+          docker --version
+          docker info --format 'Server Version: {{.ServerVersion}}'
+          echo "✅ Docker is pre-installed"
+          echo ""
+          echo "=== RUNNING TEST CONTAINER ==="
+          docker run --rm alpine:latest echo "✓ Docker works perfectly!"
+      
+      # Step 2: Checkout code
       - name: Checkout code
         uses: actions/checkout@v4
       
+      # Step 3: Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
       
+      # Step 4: Install dependencies
       - name: Install dependencies
         run: |
           npm ci
           npm install allure-playwright --save-dev
       
+      # Step 5: Install Playwright browsers
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
       
+      # Step 6: Install Allure CLI (FIXED - no sudo for symlink)
       - name: Install Allure CLI
         run: |
+          # Install Java (needed for Allure)
           sudo apt-get update
           sudo apt-get install -y default-jre
+          
+          # Download and install Allure to user directory
           wget -q https://github.com/allure-framework/allure2/releases/download/2.24.1/allure-2.24.1.zip
-          unzip -q allure-2.24.1.zip -d /opt/
-          ln -sf /opt/allure-2.24.1/bin/allure /usr/bin/allure
+          unzip -q allure-2.24.1.zip -d ~/
+          
+          # Add to PATH without sudo
+          echo "$HOME/allure-2.24.1/bin" >> $GITHUB_PATH
+          
+          # Verify installation
+          echo "Allure installed at:"
+          ls -la ~/allure-2.24.1/bin/
+          
+          # Check version
+          ~/allure-2.24.1/bin/allure --version
       
-      - name: Run tests
-        run: npx playwright test --reporter=allure-playwright
+      # Step 7: Run tests with Allure
+      - name: Run tests with Allure
+        run: |
+          npx playwright test --reporter=allure-playwright
       
+      # Step 8: Generate Allure report
       - name: Generate Allure report
         if: always()
-        run: allure generate allure-results -o allure-report --clean
+        run: |
+          allure generate allure-results -o allure-report --clean
+          echo "📊 Report generated: allure-report/"
       
-      - name: Upload report
+      # Step 9: Upload report
+      - name: Upload Allure report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: allure-report/
+          retention-days: 30
+      
+      # Step 10: Upload screenshots/videos from failures
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-evidence
+          path: test-results/
+          retention-days: 30
