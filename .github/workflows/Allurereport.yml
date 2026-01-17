@@ -63,12 +63,14 @@ jobs:
         if: always()
         with:
           allure-results: "allure-results"
-          allure-report: "allure-report"
-          clean: true
-          artifact: "allure-html-report"
+          reports-site-path: "tests"
+          report-name: "Playwright Tests"
+          ci-name: "GitHub Actions"
+          max-reports: 10
+          summary: true
 
       # ──────────────────────────────────────────────
-      # Upload Playwright HTML report (optional)
+      # Upload Playwright HTML report
       # ──────────────────────────────────────────────
       - name: 📤 Upload Playwright HTML report
         uses: actions/upload-artifact@v4
@@ -76,6 +78,17 @@ jobs:
         with:
           name: playwright-html-report
           path: playwright-report/
+          retention-days: 7
+
+      # ──────────────────────────────────────────────
+      # Upload Allure results as backup
+      # ──────────────────────────────────────────────
+      - name: 📤 Upload Allure raw results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-results-raw
+          path: allure-results/
           retention-days: 7
 
       # ──────────────────────────────────────────────
@@ -88,9 +101,6 @@ jobs:
           name: test-artifacts
           path: |
             test-results/
-            screenshots/
-            videos/
-            traces/
           retention-days: 7
 
       # ──────────────────────────────────────────────
@@ -105,16 +115,37 @@ jobs:
           echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          
           echo "### 📊 Available Reports:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Allure HTML Report** - Download the 'allure-html-report' artifact" >> $GITHUB_STEP_SUMMARY
-          echo "- **Playwright HTML Report** - Download the 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
-          echo "- **Test Artifacts** - Screenshots, videos, traces in 'test-artifacts'" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔍 How to view:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Go to this workflow run" >> $GITHUB_STEP_SUMMARY
-          echo "2. Click on 'playwright-tests' job" >> $GITHUB_STEP_SUMMARY
-          echo "3. In the 'Artifacts' section, download the reports" >> $GITHUB_STEP_SUMMARY
-          echo "4. Extract and open \`index.html\` from Allure or Playwright report in a browser" >> $GITHUB_STEP_SUMMARY
+          
+          # Check what reports are available
+          if [ -d "playwright-report" ] && [ -f "playwright-report/index.html" ]; then
+            echo "✅ **Playwright HTML Report** - Download 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -d "allure-results" ] && [ "$(ls -A allure-results 2>/dev/null)" ]; then
+            echo "✅ **Allure Results Generated** - Data available in 'allure-results-raw'" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -d "test-results" ]; then
+            echo "✅ **Test Artifacts** - Screenshots, videos, traces in 'test-artifacts'" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "### 🔍 How to view reports:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🌍 Allure Report URL (if generated)" >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.allure_report.outputs.report-url }}" >> $GITHUB_STEP_SUMMARY
+          echo "#### 1. Playwright Report (Easiest):" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
+          echo "2. Extract ZIP" >> $GITHUB_STEP_SUMMARY
+          echo "3. Open `index.html` in browser" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "#### 2. Allure Report:" >> $GITHUB_STEP_SUMMARY
+          echo "The Allure action generates a hosted report at:" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.allure_report.outputs.report-url || 'URL not available' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### 3. For Debugging Failed Tests:" >> $GITHUB_STEP_SUMMARY
+          echo "- Download 'test-artifacts' for screenshots/videos" >> $GITHUB_STEP_SUMMARY
