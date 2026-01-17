@@ -1,46 +1,63 @@
-// @ts-check
+// playwright.ci.config.js
 const { defineConfig, devices } = require('@playwright/test');
+const path = require('path');
 
 module.exports = defineConfig({
-  // 🎯 SAME test directory
   testDir: './tests',
-
-  // 🔥 CI should still be parallel, but controlled
+  
   fullyParallel: true,
   forbidOnly: true,
-
-  // 🧪 CI retry strategy
   retries: 2,
   workers: 4,
 
-  // 📊 CI REPORTING (Allure only)
-     reporter: [
+  reporter: [
     ['list'],
     ['allure-playwright'],
     ['html', { 
       outputFolder: 'playwright-report',
-      open: 'never'  
+      open: 'never',
+      // Add attachments configuration for HTML reporter
+      attachmentsBaseURL: 'test-results/',
+      attachTests: true
     }]
   ],
 
-  // 🧪 TEST ARTIFACTS (VERY IMPORTANT FOR CI DEBUGGING)
+  // 🧪 TEST ARTIFACTS - FIXED PATH CONFIGURATION
   use: {
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    // Store screenshots in test-results folder
+    screenshot: {
+      mode: 'only-on-failure',
+      fullPage: true,
+    },
+    
+    // Store videos in test-results folder  
+    video: {
+      mode: 'retain-on-failure',
+      size: { width: 1920, height: 1080 }
+    },
+    
+    // Store traces in test-results folder
     trace: 'retain-on-failure',
+    
     headless: true,
+    
+    // Base path for all artifacts
+    baseURL: process.env.BASE_URL || 'http://localhost:3000',
   },
 
-  // 📱 + 💻 SAME project logic as local
+  // 📱 + 💻 Project configuration
   projects: [
     {
       name: 'chrome-web',
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1920, height: 1080 },
+        // Project-specific screenshot settings
+        screenshot: 'only-on-failure',
+        video: 'retain-on-failure',
+        trace: 'retain-on-failure',
       },
     },
-
     {
       name: 'mobile',
       grep: /@Mobile/,
@@ -48,7 +65,14 @@ module.exports = defineConfig({
         ...devices['iPhone 12'],
         isMobile: true,
         hasTouch: true,
+        // Project-specific screenshot settings
+        screenshot: 'only-on-failure',
+        video: 'retain-on-failure',
+        trace: 'retain-on-failure',
       },
     },
   ],
+
+  // Global output directory for all artifacts
+  outputDir: 'test-results/',
 });
