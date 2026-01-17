@@ -1,140 +1,161 @@
-name: Playwright CI ON DEMAND version with tyable report
+name: Playwright CI ON DEMAND extended report
 
 on:
-  workflow_dispatch:  # Manual trigger ONLY
+  workflow_dispatch:
 
 jobs:
-  # Check Docker is available
-  check-docker:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Verify Docker installation
-        run: |
-          which docker || echo "❌ Docker not found"
-          docker --version
-          echo "✅ Docker check complete"
-
-  # Run Playwright tests with CI config
   playwright-tests:
     runs-on: ubuntu-latest
-    needs: check-docker
     
     steps:
+    # ─────────────────────────────────────────────────────
+    # PHASE 1: SETUP
+    # ─────────────────────────────────────────────────────
     - name: 📥 Checkout code
       uses: actions/checkout@v4
-
-    - name: ⚙️ Setup Node.js
+      id: checkout
+      
+    - name: ⚙️ Setup Node.js with caching
       uses: actions/setup-node@v4
+      id: node-setup
       with:
         node-version: '20'
         cache: 'npm'
-
-    - name: 📦 Install dependencies
-      run: npm ci
+        
+    - name: 📦 Install dependencies with cache
+      uses: bahmutov/npm-install@v1
+      id: npm-install
+      with:
+        useLockFile: true
 
     - name: 🎭 Install Playwright browsers
+      id: browser-install
       run: npx playwright install --with-deps chromium
 
+    # ─────────────────────────────────────────────────────
+    # PHASE 2: EXECUTION
+    # ─────────────────────────────────────────────────────
     - name: 🔧 List files for debugging
+      id: debug-files
       run: |
-        echo "Current directory:"
+        echo "=== 📁 FILE STRUCTURE ==="
         pwd
-        echo "Files in root:"
         ls -la
-        echo "Config files:"
-        ls -la playwright*.config.js || echo "No config files found"
+        echo "Node modules: $(find node_modules -type f | wc -l) files"
+        echo "Playwright: $(which playwright)"
 
-    - name: 🧪 Run Playwright tests (CI config)
+    - name: 🧪 Run Playwright tests
       id: run-tests
       run: |
         echo "Running tests with CI config..."
         npx playwright test --config=playwright.ci.config.js
-        
-        # Capture exit code
-        echo "exit_code=$?" >> $GITHUB_OUTPUT
       continue-on-error: true
 
+    # ─────────────────────────────────────────────────────
+    # PHASE 3: REPORTING
+    # ─────────────────────────────────────────────────────
     - name: 📊 Check generated reports
       id: check-reports
       run: |
-        echo "Checking for generated reports..."
-        
-        # Check Playwright report
+        echo "=== 📊 REPORT STATUS ==="
+        echo ""
+        echo "Playwright report:"
         if [ -d "playwright-report" ] && [ -f "playwright-report/index.html" ]; then
-          echo "playwright_report=true" >> $GITHUB_OUTPUT
-          REPORT_SIZE=$(du -sh playwright-report | cut -f1)
-          echo "playwright_report_size=$REPORT_SIZE" >> $GITHUB_OUTPUT
+          echo "✅ EXISTS - $(du -sh playwright-report)"
+          echo "report_exists=true" >> $GITHUB_OUTPUT
         else
-          echo "playwright_report=false" >> $GITHUB_OUTPUT
-          echo "playwright_report_size=0B" >> $GITHUB_OUTPUT
+          echo "❌ MISSING"
+          echo "report_exists=false" >> $GITHUB_OUTPUT
         fi
         
-        # Check test artifacts
+        echo ""
+        echo "Test artifacts:"
         if [ -d "test-results" ]; then
-          echo "test_artifacts=true" >> $GITHUB_OUTPUT
-          ARTIFACT_COUNT=$(find test-results -type f -name "*.png" -o -name "*.webm" -o -name "*.zip" 2>/dev/null | wc -l)
-          echo "artifact_count=$ARTIFACT_COUNT" >> $GITHUB_OUTPUT
+          echo "✅ EXISTS - $(du -sh test-results)"
+          echo "artifacts_exist=true" >> $GITHUB_OUTPUT
         else
-          echo "test_artifacts=false" >> $GITHUB_OUTPUT
-          echo "artifact_count=0" >> $GITHUB_OUTPUT
+          echo "❌ MISSING"
+          echo "artifacts_exist=false" >> $GITHUB_OUTPUT
         fi
 
     - name: 📤 Upload Playwright HTML report
+      id: upload-report
+      if: steps.check-reports.outputs.report_exists == 'true'
       uses: actions/upload-artifact@v4
-      if: always()
       with:
         name: playwright-html-report
         path: playwright-report/
         retention-days: 7
 
     - name: 📤 Upload test artifacts
+      id: upload-artifacts
+      if: steps.check-reports.outputs.artifacts_exist == 'true'
       uses: actions/upload-artifact@v4
-      if: always()
       with:
         name: test-artifacts
-        path: |
-          test-results/
+        path: test-results/
         retention-days: 7
 
+    # ─────────────────────────────────────────────────────
+    # PHASE 4: SUMMARY
+    # ─────────────────────────────────────────────────────
     - name: 📋 Create job summary
       if: always()
       run: |
-        echo "## 🎭 Playwright CI Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "## 🎭 Playwright CI - Execution Pipeline" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        echo "### 📋 Execution Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Step | Status | Details |" >> $GITHUB_STEP_SUMMARY
-        echo "|------|--------|---------|" >> $GITHUB_STEP_SUMMARY
-        echo "| 📥 **Code Checkout** | ✅ Success | Branch: \`${{ github.ref_name }}\`<br>Commit: \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
-        echo "| ⚙️ **Node.js Setup** | ✅ Success | Version: $(node --version) |" >> $GITHUB_STEP_SUMMARY
-        echo "| 📦 **Dependencies** | ✅ Success | Installed with \`npm ci\` |" >> $GITHUB_STEP_SUMMARY
-        echo "| 🎭 **Browser Install** | ✅ Success | Chromium installed |" >> $GITHUB_STEP_SUMMARY
-        echo "| 🧪 **Test Execution** | ${{ steps.run-tests.outputs.exit_code == '0' && '✅ Success' || '❌ Failed' }} | Exit code: ${{ steps.run-tests.outputs.exit_code || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| 📊 **Report Generation** | ${{ steps.check-reports.outputs.playwright_report == 'true' && '✅ Generated' || '❌ Failed' }} | Size: ${{ steps.check-reports.outputs.playwright_report_size }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| 📸 **Test Artifacts** | ${{ steps.check-reports.outputs.test_artifacts == 'true' && '✅ Available' || '❌ None' }} | Files: ${{ steps.check-reports.outputs.artifact_count }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| 📤 **Artifact Upload** | ✅ Ready | 2 artifacts uploaded |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        echo "### 📊 Available Reports" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Artifact | Description | How to View |" >> $GITHUB_STEP_SUMMARY
-        echo "|----------|-------------|-------------|" >> $GITHUB_STEP_SUMMARY
-        echo "| 🎭 **playwright-html-report** | Interactive HTML report with screenshots & videos | 1. Download artifact<br>2. Extract ZIP<br>3. Open \`index.html\` in browser |" >> $GITHUB_STEP_SUMMARY
-        echo "| 📸 **test-artifacts** | Screenshots, videos, traces from failed tests | 1. Download artifact<br>2. Extract to view failed test evidence |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "- **Workflow Run:** [${{ github.workflow }} #${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-        echo "- **Repository:** [${{ github.repository }}](${{ github.server_url }}/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
-        echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Trigger:** Manual 🚀" >> $GITHUB_STEP_SUMMARY
+        echo "```mermaid" >> $GITHUB_STEP_SUMMARY
+        echo "graph TD" >> $GITHUB_STEP_SUMMARY
+        echo "    A[📥 Checkout Code] --> B[⚙️ Setup Node.js]" >> $GITHUB_STEP_SUMMARY
+        echo "    B --> C[📦 Install Dependencies]" >> $GITHUB_STEP_SUMMARY
+        echo "    C --> D[🎭 Install Browsers]" >> $GITHUB_STEP_SUMMARY
+        echo "    D --> E[🔧 Debug Files]" >> $GITHUB_STEP_SUMMARY
+        echo "    E --> F[🧪 Run Tests]" >> $GITHUB_STEP_SUMMARY
+        echo "    F --> G[📊 Check Reports]" >> $GITHUB_STEP_SUMMARY
+        echo "    G --> H{Report Exists?}" >> $GITHUB_STEP_SUMMARY
+        echo "    H -->|Yes| I[📤 Upload Report]" >> $GITHUB_STEP_SUMMARY
+        echo "    H -->|No| J[⚠️ No Report]" >> $GITHUB_STEP_SUMMARY
+        echo "    G --> K{Artifacts Exist?}" >> $GITHUB_STEP_SUMMARY
+        echo "    K -->|Yes| L[📤 Upload Artifacts]" >> $GITHUB_STEP_SUMMARY
+        echo "    K -->|No| M[⚠️ No Artifacts]" >> $GITHUB_STEP_SUMMARY
+        echo "    style A fill:#e1f5fe" >> $GITHUB_STEP_SUMMARY
+        echo "    style B fill:#f3e5f5" >> $GITHUB_STEP_SUMMARY
+        echo "    style C fill:#e8f5e8" >> $GITHUB_STEP_SUMMARY
+        echo "    style D fill:#fff3e0" >> $GITHUB_STEP_SUMMARY
+        echo "    style E fill:#fce4ec" >> $GITHUB_STEP_SUMMARY
+        echo "    style F fill:#fff8e1" >> $GITHUB_STEP_SUMMARY
+        echo "    style G fill:#e8eaf6" >> $GITHUB_STEP_SUMMARY
+        echo "    style I fill:#c8e6c9" >> $GITHUB_STEP_SUMMARY
+        echo "    style L fill:#bbdefb" >> $GITHUB_STEP_SUMMARY
+        echo "```" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        echo "### 📈 Next Steps" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Step Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "1. **Download artifacts** from the Artifacts section above" >> $GITHUB_STEP_SUMMARY
-        echo "2. **Review HTML report** for test results" >> $GITHUB_STEP_SUMMARY
-        echo "3. **Check artifacts** for debugging failed tests" >> $GITHUB_STEP_SUMMARY
-        echo "4. **Re-run workflow** if needed" >> $GITHUB_STEP_SUMMARY
+        echo "| Phase | Step | Status | Output |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **Setup** | 📥 Checkout Code | ✅ | Branch: \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Setup** | ⚙️ Setup Node.js | ✅ | $(node --version) |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Setup** | 📦 Install Dependencies | ✅ | Dependencies installed |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Setup** | 🎭 Install Browsers | ✅ | Chromium installed |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Setup** | 🔧 Debug Files | ✅ | Files listed |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Execution** | 🧪 Run Tests | ${{ steps.run-tests.outcome == 'success' && '✅' || '❌' }} | Exit code: ${{ steps.run-tests.outputs.exit_code || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Reporting** | 📊 Check Reports | ${{ steps.check-reports.outcome == 'success' && '✅' || '❌' }} | Report: ${{ steps.check-reports.outputs.report_exists == 'true' && 'Found' || 'Missing' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Reporting** | 📤 Upload Report | ${{ steps.upload-report.outcome == 'success' && '✅' || '⚠️' }} | ${{ steps.upload-report.outcome == 'success' && 'Uploaded' || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Reporting** | 📤 Upload Artifacts | ${{ steps.upload-artifacts.outcome == 'success' && '✅' || '⚠️' }} | ${{ steps.upload-artifacts.outcome == 'success' && 'Uploaded' || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "### 🎯 Final Status" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ steps.check-reports.outputs.report_exists }}" = "true" ]; then
+          echo "✅ **SUCCESS**: Playwright HTML report generated and uploaded" >> $GITHUB_STEP_SUMMARY
+          echo "- Download: **playwright-html-report** artifact" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **PARTIAL**: Tests ran but no HTML report was generated" >> $GITHUB_STEP_SUMMARY
+          echo "- Check test execution logs for errors" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ steps.check-reports.outputs.artifacts_exist }}" = "true" ]; then
+          echo "- Debug: **test-artifacts** available for failed tests" >> $GITHUB_STEP_SUMMARY
+        fi
