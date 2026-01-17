@@ -1,4 +1,4 @@
-name: Playwright CI (Docker + Allure)
+name: Playwright CI Tests
 
 on:
   push:
@@ -8,19 +8,15 @@ on:
 jobs:
   playwright-tests:
     runs-on: ubuntu-latest
-
     steps:
-      # 1️⃣ Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Node.js (needed for Allure CLI)
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      # 3️⃣ Install Docker (CI side only)
       - name: Install Docker
         run: |
           sudo apt-get update
@@ -28,11 +24,9 @@ jobs:
           sudo systemctl start docker
           docker --version
 
-      # 4️⃣ Build Playwright Docker image
       - name: Build Docker image
         run: docker build -t playwright-ci .
 
-      # 5️⃣ Run Playwright tests (Performance + Functional)
       - name: Run Playwright tests
         run: |
           docker run \
@@ -40,16 +34,13 @@ jobs:
             -v ${{ github.workspace }}/allure-results:/app/allure-results \
             playwright-ci
 
-      # 6️⃣ Install Allure CLI
       - name: Install Allure CLI
         run: npm install -g allure-commandline
 
-      # 7️⃣ Generate Allure report
       - name: Generate Allure report
         run: |
           allure generate allure-results --clean -o allure-report
 
-      # 8️⃣ Upload Allure report artifact
       - name: Upload Allure report
         uses: actions/upload-artifact@v4
         with:
