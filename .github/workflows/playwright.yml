@@ -1,107 +1,118 @@
-# .gitlab-ci.yml
-stages:
-  - test
-  - report
+# .github/workflows/playwright-ci.yml
+name: Playwright CI
 
-variables:
-  # Cache directories for Node modules and Playwright browsers
-  NODE_MODULES_CACHE: "node_modules"
-  PLAYWRIGHT_BROWSERS_CACHE: "~/.cache/ms-playwright"
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
 
-# Cache configuration
-cache:
-  key: ${CI_COMMIT_REF_SLUG}
-  paths:
-    - node_modules/
-    - ~/.cache/ms-playwright/
-  policy: pull-push
+jobs:
+  # Check Docker is available
+  check-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Docker installation
+        run: |
+          which docker || echo "❌ Docker not found"
+          docker --version
+          echo "✅ Docker check complete"
 
-# Install dependencies and Playwright browsers
-install-deps:
-  stage: .pre
-  image: node:18-alpine
-  script:
-    - npm ci
-    - npx playwright install --with-deps chromium
-  artifacts:
-    expire_in: 1 hour
-    paths:
-      - node_modules/
-      - ~/.cache/ms-playwright/
-
-# Run Playwright tests
-playwright-tests:
-  stage: test
-  image: node:18-alpine
-  needs: ["install-deps"]
-  script:
-    - echo "Running Playwright tests with Allure reporting..."
-    # Run tests and generate Allure results
-    - npm test || true  # Continue even if tests fail
+  # Run Playwright tests with CI config
+  playwright-tests:
+    runs-on: ubuntu-latest
+    needs: check-docker  # Optional - remove if not needed
     
-    # Check if Allure results exist
-    - echo "Checking for Allure results..."
-    - ls -la allure-results/ || echo "No allure-results directory found"
-  artifacts:
-    when: always  # Always upload artifacts even if tests fail
-    paths:
-      - allure-results/
-      - test-results/
-      - playwright-report/
-    expire_in: 1 week
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_COMMIT_BRANCH == "develop"'
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
 
-# Generate and serve Allure report
-allure-report:
-  stage: report
-  image: node:18-alpine
-  needs: ["playwright-tests"]
-  before_script:
-    - npm install -g allure-commandline
-  script:
-    - echo "Generating Allure report..."
-    
-    # Generate HTML report from results
-    - allure generate allure-results --clean -o allure-report
-    
-    # Create a simple index.html to view the report
-    - echo "<!DOCTYPE html>
-      <html>
-      <head>
-        <title>Test Report</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 40px; }
-          a { color: #1f78d1; text-decoration: none; }
-          a:hover { text-decoration: underline; }
-        </style>
-      </head>
-      <body>
-        <h1>📊 Test Execution Report</h1>
-        <p><strong>Branch:</strong> ${CI_COMMIT_REF_NAME}</p>
-        <p><strong>Pipeline:</strong> <a href='${CI_PIPELINE_URL}'>${CI_PIPELINE_ID}</a></p>
-        <h2>📁 Available Reports:</h2>
-        <ul>
-          <li><a href='allure-report/index.html'>📈 Allure Report</a> (Interactive)</li>
-          <li><a href='playwright-report/index.html'>🎭 Playwright Report</a></li>
-        </ul>
-        <h2>🔍 Artifacts for Debugging:</h2>
-        <p>Download artifacts from the pipeline to see:</p>
-        <ul>
-          <li>Screenshots of failed tests</li>
-          <li>Video recordings</li>
-          <li>Trace files</li>
-        </ul>
-      </body>
-      </html>" > public/index.html
-  artifacts:
-    paths:
-      - allure-report/
-      - public/
-    expire_in: 30 days
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_COMMIT_BRANCH == "develop"'
+    - name: ⚙️ Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: 📦 Install dependencies
+      run: npm ci
+
+    - name: 🎭 Install Playwright browsers
+      run: npx playwright install --with-deps chromium
+
+    - name: 🔧 List files for debugging
+      run: |
+        echo "Current directory:"
+        pwd
+        echo "Files in root:"
+        ls -la
+        echo "Config files:"
+        ls -la playwright*.config.js || echo "No config files found"
+
+    - name: 🧪 Run Playwright tests (CI config)
+      run: |
+        echo "Running tests with CI config..."
+        # Run with your CI-specific config
+        npx playwright test --config=playwright.ci.config.js
+      continue-on-error: true  # Continue even if tests fail
+
+    - name: 📊 Check generated reports
+      run: |
+        echo "Checking for generated reports..."
+        echo "📁 Directory listing:"
+        ls -la
+        
+        echo "🎭 Playwright reports:"
+        if [ -d "playwright-report" ]; then
+          echo "Found playwright-report directory"
+          ls -la playwright-report/
+        else
+          echo "No playwright-report directory"
+        fi
+        
+        echo "📸 Test artifacts:"
+        if [ -d "test-results" ]; then
+          echo "Found test-results directory"
+          ls -la test-results/
+        else
+          echo "No test-results directory"
+        fi
+
+    - name: 📤 Upload Playwright HTML report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: playwright-html-report
+        path: playwright-report/
+        retention-days: 7
+
+    - name: 📤 Upload test artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-artifacts
+        path: |
+          test-results/
+          screenshots/
+          videos/
+          traces/
+        retention-days: 7
+
+    - name: 📋 Create job summary
+      if: always()
+      run: |
+        echo "## 🎭 Playwright CI Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Workflow:** [${{ github.workflow }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+        echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Available Reports:" >> $GITHUB_STEP_SUMMARY
+        echo "- **Playwright HTML Report** - Download the 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
+        echo "- **Test Artifacts** - Screenshots, videos, traces in 'test-artifacts'" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔍 How to view:" >> $GITHUB_STEP_SUMMARY
+        echo "1. Go to this workflow run" >> $GITHUB_STEP_SUMMARY
+        echo "2. Click on 'playwright-tests' job" >> $GITHUB_STEP_SUMMARY
+        echo "3. In the 'Artifacts' section, download the reports" >> $GITHUB_STEP_SUMMARY
+        echo "4. Extract and open `index.html` in a browser" >> $GITHUB_STEP_SUMMARY
