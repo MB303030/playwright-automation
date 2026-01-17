@@ -1,172 +1,48 @@
-name: Generate Allure Report
+name: Simple Allure Report
 
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+on: [push]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      # 1. Docker verification
-      - name: ✅ Verify Docker
-        run: |
-          echo "=== DOCKER STATUS ==="
-          docker --version
-          docker run --rm alpine echo "✓ Docker works"
-          echo ""
-      
-      # 2. Checkout
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      # 3. Setup Node
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
       
-      # 4. Install dependencies
-      - name: Install dependencies
-        run: |
-          echo "Installing dependencies..."
-          npm ci
-          # Install Allure reporter
-          npm install allure-playwright --save-dev
-          echo "✅ Dependencies installed"
+      - run: npm ci
+      - run: npm install allure-playwright --save-dev
+      - run: npx playwright install chromium
       
-      # 5. Install browsers
-      - name: Install Playwright browsers
+      # Install Allure CLI
+      - name: Install Allure
         run: |
-          echo "Installing Playwright browsers..."
-          npx playwright install chromium
-          echo "✅ Browsers installed"
-      
-      # 6. Install Allure CLI manually
-      - name: Install Allure CLI
-        run: |
-          echo "Installing Allure CLI..."
-          sudo apt-get update
-          sudo apt-get install -y default-jre wget unzip
-          wget -q https://github.com/allure-framework/allure2/releases/download/2.24.1/allure-2.24.1.zip
-          unzip -q allure-2.24.1.zip -d ~/
+          sudo apt update
+          sudo apt install -y default-jre
+          curl -Lo allure.tgz https://github.com/allure-framework/allure2/releases/download/2.24.1/allure-2.24.1.tgz
+          tar -xzf allure.tgz -C ~/
           echo "$HOME/allure-2.24.1/bin" >> $GITHUB_PATH
-          echo "✅ Allure CLI installed"
-          ~/allure-2.24.1/bin/allure --version
       
-      # 7. Run tests with YOUR CI config
-      - name: Run Playwright tests
+      # Run tests
+      - name: Run tests
         continue-on-error: true
         run: |
-          echo "=== RUNNING TESTS ==="
-          # Use YOUR config with Allure reporter
           npx playwright test \
             --config=playwright.ci.config.js \
             --reporter=allure-playwright
-          
-          echo "=== CHECKING RESULTS ==="
-          if [ -d "allure-results" ]; then
-            echo "✅ allure-results created"
-            echo "Files found: $(find allure-results -type f | wc -l)"
-          else
-            echo "❌ No allure-results created"
-            # Create dummy results
-            mkdir -p allure-results
-            echo '{"name": "Test Run", "status": "passed"}' > allure-results/dummy.json
-          fi
       
-      # 8. Generate Allure report manually (NO broken action)
-      - name: Generate Allure Report
+      # Generate report
+      - name: Generate report
         if: always()
         run: |
-          echo "Generating Allure report..."
-          
-          # Create report directory if it doesn't exist
-          mkdir -p allure-report
-          
-          # Generate HTML report
           allure generate allure-results -o allure-report --clean
-          
-          # Check if report was created
-          if [ -f "allure-report/index.html" ]; then
-            echo "✅ Allure report generated successfully!"
-            echo "Report location: allure-report/"
-            ls -la allure-report/
-          else
-            echo "⚠️ Report not generated, creating fallback..."
-            # Create simple HTML report
-            cat > allure-report/index.html << 'EOF'
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Playwright Test Report</title>
-                <style>
-                    body { font-family: Arial, sans-serif; margin: 40px; }
-                    .container { max-width: 800px; margin: 0 auto; }
-                    .success { color: #28a745; }
-                    .error { color: #dc3545; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>🎯 Playwright Test Report</h1>
-                    <p>Generated: $(date)</p>
-                    <p>Branch: ${{ github.ref }}</p>
-                    <p>Commit: ${{ github.sha }}</p>
-                    <hr>
-                    <h2>📊 Test Results</h2>
-                    <p>Allure report was not generated from test results.</p>
-                    <p>Check workflow logs for details.</p>
-                    <p><a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run</a></p>
-                </div>
-            </body>
-            </html>
-            EOF
-            echo "✅ Fallback report created"
-          fi
+          echo "📊 Report generated!"
       
-      # 9. Deploy to GitHub Pages (using working action)
-      - name: Deploy report to GitHub Pages
-        if: always()
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: allure-report
-          publish_branch: gh-pages
-      
-      # 10. Upload artifact
-      - name: Upload Allure report as artifact
-        if: always()
-        uses: actions/upload-artifact@v4
+      # Upload for download
+      - uses: actions/upload-artifact@v4
         with:
           name: allure-report
           path: allure-report/
-          retention-days: 30
       
-      # 11. Show final status with links
-      - name: Show final status
-        if: always()
-        run: |
-          echo "========================================"
-          echo "           🎯 ALLURE REPORT             "
-          echo "========================================"
-          echo ""
-          echo "✅ Tests completed"
-          echo ""
-          echo "🌐 ONLINE REPORT (GitHub Pages):"
-          echo "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
-          echo ""
-          echo "📥 DOWNLOAD REPORT:"
-          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
-          echo ""
-          echo "⚙️ ENABLE GITHUB PAGES:"
-          echo "1. Go to: https://github.com/${{ github.repository }}/settings/pages"
-          echo "2. Select 'gh-pages' branch"
-          echo "3. Select '/' folder"
-          echo "4. Click Save"
-          echo "5. Wait 1-2 minutes"
-          echo ""
-          echo "🔍 DEBUG INFO:"
-          echo "Workflow Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          echo "========================================"
+      - run: echo "✅ Done! Download from Actions → Artifacts"
