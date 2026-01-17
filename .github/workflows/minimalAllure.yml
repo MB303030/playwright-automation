@@ -1,0 +1,58 @@
+name: Minimal Allure
+
+on:
+  workflow_dispatch:
+
+jobs:
+  playwright-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🎭 Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit firefox
+
+      - name: 🧪 Run Playwright tests
+        run: npx playwright test --config=playwright.ci.config.js
+        continue-on-error: true
+
+      - name: 📊 Upload Playwright HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: 🦄 Generate Allure report (artifact + link)
+        uses: andgineer/allure-report@v3.6
+        id: allure
+        with:
+          allure-results: "allure-results"
+          report-name: "Allure Report"
+          website: false   # disable automatic GitHub Pages deploy
+          summary: true     # generate summary file
+
+      - name: 📤 Upload Allure HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-html-report
+          path: allure-report/
+          retention-days: 7
+
+      - name: 📋 Job summary
+        run: |
+          echo "## 🎭 Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Playwright HTML report: Download 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
+          echo "- Allure HTML report: Download 'allure-html-report' artifact" >> $GITHUB_STEP_SUMMARY
+          echo "- Allure report page: ${{ steps.allure.outputs.report-page }}" >> $GITHUB_STEP_SUMMARY
