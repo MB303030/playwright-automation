@@ -1,4 +1,4 @@
-name: Playwright Tests with Allure & GitHub Pages
+name: Playwright Tests with Allure Report
 
 on:
   push:
@@ -7,184 +7,98 @@ on:
     branches: [main]
 
 jobs:
-  test-and-deploy:
+  test:
     runs-on: ubuntu-latest
     
     steps:
-      # 1️⃣ Verify Docker
+      # 1. Docker check
       - name: ✅ Verify Docker
         run: |
           docker --version
-          docker run --rm alpine:latest echo "✓ Docker verified"
+          echo "✅ Docker is ready"
       
-      # 2️⃣ Checkout
+      # 2. Checkout
       - uses: actions/checkout@v4
       
-      # 3️⃣ Setup Node
+      # 3. Setup Node
       - uses: actions/setup-node@v4
         with:
           node-version: '18'
           cache: 'npm'
       
-      # 4️⃣ Install dependencies
+      # 4. Install
       - run: npm ci
       - run: npm install allure-playwright --save-dev
-      
-      # 5️⃣ Install browsers
       - run: npx playwright install chromium
       
-      # 6️⃣ Install Allure (Simpler method)
-      - name: Install Allure CLI
-        uses: joshuaavalon/setup-allure@v1
-      
-      # 7️⃣ Create allure-results directory FIRST
-      - name: Setup Allure directories
+      # 5. Install Allure CLI
+      - name: Install Allure
         run: |
-          mkdir -p allure-results
-          mkdir -p allure-report
-          echo "Directories created"
+          sudo apt update
+          sudo apt install -y default-jre
+          curl -Lo allure.tgz https://github.com/allure-framework/allure2/releases/download/2.24.1/allure-2.24.1.tgz
+          tar -xzf allure.tgz -C ~/
+          echo "$HOME/allure-2.24.1/bin" >> $GITHUB_PATH
       
-      # 8️⃣ Run tests and ensure results are created
-      - name: Run tests with Allure
-        id: run-tests
+      # 6. Run tests
+      - name: Run tests
         continue-on-error: true
-        run: |
-          echo "Running tests with Allure reporter..."
-          npx playwright test --reporter=line,allure-playwright
-          
-          # Check if results were created
-          if [ -d "allure-results" ] && [ "$(ls -A allure-results 2>/dev/null)" ]; then
-            echo "✅ Allure results generated"
-            echo "has_results=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ No Allure results found"
-            echo "has_results=false" >> $GITHUB_OUTPUT
-            
-            # Create dummy results for testing
-            mkdir -p allure-results
-            cat > allure-results/dummy-result.json << EOF
-            {
-              "name": "Test execution",
-              "status": "failed",
-              "stage": "finished",
-              "steps": [],
-              "attachments": []
-            }
-            EOF
-          fi
+        run: npx playwright test --reporter=allure-playwright
       
-      # 9️⃣ Generate report (ALWAYS)
-      - name: Generate Allure report
+      # 7. Generate report in MAIN branch
+      - name: Generate and deploy report
         if: always()
         run: |
-          echo "Generating Allure report..."
-          
-          # Check what we have
-          echo "=== Checking allure-results ==="
-          ls -la allure-results/ 2>/dev/null || echo "No allure-results dir"
-          
-          echo "=== Generating report ==="
+          # Generate report
           allure generate allure-results -o allure-report --clean
           
-          # Create a fallback report if empty
-          if [ ! -f "allure-report/index.html" ]; then
-            echo "Creating fallback report..."
-            mkdir -p allure-report
-            cat > allure-report/index.html << 'EOF'
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Test Report - No Results</title>
-                <style>
-                    body { font-family: Arial, sans-serif; margin: 40px; }
-                    .container { max-width: 800px; margin: 0 auto; }
-                    .error { color: #d9534f; background: #f2dede; padding: 15px; border-radius: 5px; }
-                    .info { color: #31708f; background: #d9edf7; padding: 15px; border-radius: 5px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>⚠️ No Test Results Generated</h1>
-                    <div class="error">
-                        <p>Tests may have failed before generating Allure results.</p>
-                        <p>Check workflow logs for errors.</p>
-                    </div>
-                    <div class="info">
-                        <p><strong>Expected URL:</strong> https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/</p>
-                        <p><strong>Workflow Run:</strong> <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Logs</a></p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            EOF
-          fi
+          # Create report in /reports folder in main branch
+          mkdir -p reports
+          cp -r allure-report/* reports/
           
-          echo "✅ Report ready: allure-report/"
-          ls -la allure-report/
-      
-      # 🔟 Upload artifact
-      - name: Upload artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: allure-report
-          path: allure-report/
-      
-      # 1️⃣1️⃣ Deploy to GitHub Pages
-      - name: Deploy to GitHub Pages
-        id: deploy-pages
-        if: always() && github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./allure-report
-          destination_dir: ./reports
-          force_orphan: true
-      
-      # 1️⃣2️⃣ PRINT THE DIRECT LINK
-      - name: 🎯 SHOW REPORT LINK
-        if: always()
-        run: |
-          echo "=========================================="
-          echo "            📊 ALLURE REPORT              "
-          echo "=========================================="
-          echo ""
-          echo "🌐 ONLINE VERSION:"
-          echo "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/"
-          echo ""
-          echo "📥 DOWNLOAD VERSION:"
-          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
-          echo ""
-          echo "🔧 TROUBLESHOOTING:"
-          echo "1. Wait 1-2 minutes for GitHub Pages to deploy"
-          echo "2. Check: https://github.com/MB303030/playwright-automation/deployments"
-          echo "3. Enable Pages in repo Settings → Pages"
-          echo "=========================================="
-      
-      # 1️⃣3️⃣ Add link to workflow summary
-      - name: Add to workflow summary
-        if: always()
-        run: |
-          REPORT_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/reports/"
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
-          
-          cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## 🎯 Test Report Generated
-          
-          ### 📊 View Online:
-          [🌐 $REPORT_URL]($REPORT_URL)
-          
-          ### 📥 Download:
-          [📦 Download Report]($DOWNLOAD_URL)
-          
-          ### ⚙️ Configuration:
-          1. **GitHub Pages**: Must be enabled in repo Settings → Pages
-          2. **Branch**: \`gh-pages\`
-          3. **Folder**: \`/ (root)\`
-          
-          ### 🔍 Debug:
-          - Check deployment status: [Deployments](https://github.com/${{ github.repository }}/deployments)
-          - Enable Pages: [Settings → Pages](https://github.com/${{ github.repository }}/settings/pages)
-          
-          *Note: It may take 1-2 minutes for the link to work after first deployment*
+          # Add simple index at root too
+          cat > index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head><title>Test Reports</title></head>
+          <body>
+            <h1>🎯 Test Reports</h1>
+            <p><a href="/reports/">View Allure Report</a></p>
+            <p><a href="https://github.com/${{ github.repository }}/actions">View Workflow Runs</a></p>
+          </body>
+          </html>
           EOF
+          
+          echo "📊 Report ready in /reports folder"
+      
+      # 8. Commit to main branch
+      - name: Deploy to main branch
+        if: always() && github.ref == 'refs/heads/main'
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add reports/ index.html
+          git commit -m "Deploy Allure report $(date)" || echo "No changes to commit"
+          git push origin main
+      
+      # 9. Show the link
+      - name: Show report link
+        if: always()
+        run: |
+          echo "=========================================="
+          echo "           📊 ALLURE REPORT READY          "
+          echo "=========================================="
+          echo ""
+          echo "🌐 ONLINE REPORT:"
+          echo "https://mb303030.github.io/playwright-automation/reports/"
+          echo ""
+          echo "📁 IN REPOSITORY:"
+          echo "https://github.com/MB303030/playwright-automation/tree/main/reports"
+          echo ""
+          echo "⚙️ Enable GitHub Pages:"
+          echo "1. Go to: https://github.com/MB303030/playwright-automation/settings/pages"
+          echo "2. Source: Deploy from a branch"
+          echo "3. Branch: main"
+          echo "4. Folder: / (root)"
+          echo "5. Click Save"
+          echo "=========================================="
