@@ -52,16 +52,24 @@ jobs:
         run: |
           echo "Running tests with CI config..."
           npx playwright test --config=playwright.ci.config.js
-        continue-on-error: true  # Continue even if tests fail
+        continue-on-error: true
 
+      # ──────────────────────────────────────────────
+      # Generate Allure report using working Action
+      # ──────────────────────────────────────────────
       - name: 🦄 Generate & Upload Allure HTML report
-        uses: allure-framework/allure-report-v2@main
+        uses: andgineer/allure-report@v3.6
+        id: allure_report
+        if: always()
         with:
-          results: "allure-results"          # Input Allure JSON
-          report: "allure-report"            # Output HTML folder
-          artifact: "allure-html-report"     # Upload artifact name
-          clean: true                        # Clean folder before generate
+          allure-results: "allure-results"
+          allure-report: "allure-report"
+          clean: true
+          artifact: "allure-html-report"
 
+      # ──────────────────────────────────────────────
+      # Upload Playwright HTML report (optional)
+      # ──────────────────────────────────────────────
       - name: 📤 Upload Playwright HTML report
         uses: actions/upload-artifact@v4
         if: always()
@@ -70,6 +78,9 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
+      # ──────────────────────────────────────────────
+      # Upload test artifacts
+      # ──────────────────────────────────────────────
       - name: 📤 Upload test artifacts
         uses: actions/upload-artifact@v4
         if: always()
@@ -82,6 +93,9 @@ jobs:
             traces/
           retention-days: 7
 
+      # ──────────────────────────────────────────────
+      # Job summary with links
+      # ──────────────────────────────────────────────
       - name: 📋 Create job summary
         if: always()
         run: |
@@ -100,4 +114,7 @@ jobs:
           echo "1. Go to this workflow run" >> $GITHUB_STEP_SUMMARY
           echo "2. Click on 'playwright-tests' job" >> $GITHUB_STEP_SUMMARY
           echo "3. In the 'Artifacts' section, download the reports" >> $GITHUB_STEP_SUMMARY
-          echo "4. Extract and open `index.html` from Allure or Playwright report in a browser" >> $GITHUB_STEP_SUMMARY
+          echo "4. Extract and open \`index.html\` from Allure or Playwright report in a browser" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🌍 Allure Report URL (if generated)" >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.allure_report.outputs.report-url }}" >> $GITHUB_STEP_SUMMARY
