@@ -5,3 +5,6 @@ playwright-report/
 api_project/
 .DS_Store
 **/.DS_Store
+allure-results
+allure-report
+
