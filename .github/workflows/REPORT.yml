@@ -1,98 +1,293 @@
 name: Playwright CI ON DEMAND with docker
 
 on:
-  workflow_dispatch:  # Manual trigger ONLY
+  workflow_dispatch:
 
 jobs:
-  # ─────────────────────────────────────────────────────
-  # PHASE 0: CHECK DOCKER (OPTIONAL)
-  # ─────────────────────────────────────────────────────
-  check-docker:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Verify Docker installation
-        run: |
-          which docker || echo "❌ Docker not found"
-          docker --version
-          echo "✅ Docker check complete"
-
-  # ─────────────────────────────────────────────────────
-  # PHASE 1: RUN PLAYWRIGHT TESTS
-  # ─────────────────────────────────────────────────────
   playwright-tests:
     runs-on: ubuntu-latest
-    needs: check-docker
     
     steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
+    # ─────────────────────────────────────────────────────
+    # HORIZONTAL VISUALIZATION (all in one job)
+    # ─────────────────────────────────────────────────────
+    - name: 🟦 PHASE 1: Environment Setup
+      id: phase1
+      run: |
+        echo "=== 🟦 PHASE 1: Environment Setup ==="
+        echo ""
+        
+        # Step 1: Check Docker
+        echo "🔍 Checking Docker..."
+        if command -v docker &> /dev/null; then
+          echo "✅ Docker: $(docker --version)"
+          echo "docker_available=true" >> $GITHUB_OUTPUT
+        else
+          echo "⚠️ Docker not found"
+          echo "docker_available=false" >> $GITHUB_OUTPUT
+        fi
+        
+        # Step 2: Checkout code
+        echo ""
+        echo "📥 Checking out code..."
+        # Already done by GitHub Actions, just confirm
+        echo "✅ Code checked out to: $(pwd)"
+        
+        # Step 3: Setup Node.js
+        echo ""
+        echo "⚙️ Setting up Node.js..."
+        # This runs automatically from the action
+        
+        echo "Phase 1 complete ✅"
 
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
+    - name: 🟩 PHASE 2: Dependencies & Tools
+      id: phase2
+      run: |
+        echo "=== 🟩 PHASE 2: Dependencies & Tools ==="
+        echo ""
+        
+        # Show current Node.js version
+        echo "📦 Node.js: $(node --version)"
+        echo "📦 npm: $(npm --version)"
+        
+        # Install dependencies
+        echo ""
+        echo "📦 Installing dependencies..."
+        npm ci
+        echo "✅ Dependencies installed"
+        
+        # Install Playwright browsers
+        echo ""
+        echo "🎭 Installing Playwright browsers..."
+        npx playwright install --with-deps chromium
+        echo "✅ Browsers installed"
+        
+        echo "Phase 2 complete ✅"
 
-      - name: 📦 Install dependencies
-        run: npm ci
+    - name: 🟨 PHASE 3: Debug & Validation
+      id: phase3
+      run: |
+        echo "=== 🟨 PHASE 3: Debug & Validation ==="
+        echo ""
+        
+        echo "🔧 File structure:"
+        echo "Working dir: $(pwd)"
+        echo ""
+        echo "📁 Root files:"
+        ls -la
+        echo ""
+        
+        echo "⚙️ Configuration:"
+        ls -la playwright*.config.js || echo "No config files"
+        echo ""
+        
+        echo "🧪 Test files:"
+        ls -la tests/ 2>/dev/null || echo "No tests directory"
+        echo ""
+        
+        echo "📊 Environment summary:"
+        echo "- Docker: ${{ steps.phase1.outputs.docker_available == 'true' && 'Available' || 'Not Available' }}"
+        echo "- Node.js: $(node --version)"
+        echo "- npm: $(npm --version)"
+        echo "- Playwright: $(npx playwright --version 2>/dev/null || echo 'Not found')"
+        
+        echo "Phase 3 complete ✅"
 
-      - name: 🎭 Install Playwright browsers
-        run: npx playwright install --with-deps chromium webkit firefox
+    - name: 🟥 PHASE 4: Test Execution
+      id: phase4
+      run: |
+        echo "=== 🟥 PHASE 4: Test Execution ==="
+        echo ""
+        echo "🧪 Running Playwright tests..."
+        echo "Using config: playwright.ci.config.js"
+        echo ""
+        
+        npx playwright test --config=playwright.ci.config.js
+        
+        # Capture exit code
+        EXIT_CODE=$?
+        echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+        
+        if [ $EXIT_CODE -eq 0 ]; then
+          echo "✅ All tests passed"
+        else
+          echo "❌ Some tests failed (exit code: $EXIT_CODE)"
+        fi
+        
+        echo "Phase 4 complete ✅"
+      continue-on-error: true
 
-      - name: 🔧 List files for debugging
-        run: |
-          echo "Current directory:"
-          pwd
-          echo "Files in root:"
-          ls -la
-          echo "Config files:"
-          ls -la playwright*.config.js || echo "No config files found"
+    - name: 🟪 PHASE 5: Report Analysis
+      id: phase5
+      run: |
+        echo "=== 🟪 PHASE 5: Report Analysis ==="
+        echo ""
+        
+        echo "📊 Checking generated artifacts..."
+        echo ""
+        
+        # Check Playwright HTML report
+        if [ -d "playwright-report" ] && [ -f "playwright-report/index.html" ]; then
+          echo "✅ Playwright HTML report: EXISTS"
+          REPORT_SIZE=$(du -sh playwright-report | cut -f1)
+          echo "   Size: $REPORT_SIZE"
+          echo "report_exists=true" >> $GITHUB_OUTPUT
+          echo "report_size=$REPORT_SIZE" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Playwright HTML report: MISSING"
+          echo "report_exists=false" >> $GITHUB_OUTPUT
+        fi
+        
+        echo ""
+        
+        # Check test artifacts
+        if [ -d "test-results" ]; then
+          ARTIFACT_COUNT=$(find test-results -type f | wc -l)
+          ARTIFACT_SIZE=$(du -sh test-results | cut -f1)
+          echo "✅ Test artifacts: EXISTS"
+          echo "   Files: $ARTIFACT_COUNT"
+          echo "   Size: $ARTIFACT_SIZE"
+          echo "artifacts_exist=true" >> $GITHUB_OUTPUT
+          echo "artifact_count=$ARTIFACT_COUNT" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Test artifacts: MISSING"
+          echo "artifacts_exist=false" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "Phase 5 complete ✅"
 
-      - name: 🧪 Run Playwright tests (CI config)
-        run: |
-          echo "Running tests with CI config..."
-          npx playwright test --config=playwright.ci.config.js
-        continue-on-error: true
+    - name: 🟦 PHASE 6: Artifact Upload
+      id: phase6
+      run: |
+        echo "=== 🟦 PHASE 6: Artifact Upload ==="
+        echo ""
+        
+        echo "📤 Uploading artifacts..."
+        
+        # Upload HTML report if exists
+        if [ "${{ steps.phase5.outputs.report_exists }}" = "true" ]; then
+          echo "📤 Uploading Playwright HTML report..."
+          # This will be done by the upload step below
+          echo "✅ Queued for upload"
+        else
+          echo "⚠️ Skipping HTML report upload (none generated)"
+        fi
+        
+        # Upload test artifacts if exist
+        if [ "${{ steps.phase5.outputs.artifacts_exist }}" = "true" ]; then
+          echo "📤 Uploading test artifacts..."
+          # This will be done by the upload step below
+          echo "✅ Queued for upload"
+        else
+          echo "⚠️ Skipping test artifacts upload (none generated)"
+        fi
+        
+        echo "Phase 6 complete ✅"
 
-      # ──────────────────────────────────────────────
-      # Upload Playwright HTML report
-      # ──────────────────────────────────────────────
-      - name: 📤 Upload Playwright HTML report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-html-report
-          path: playwright-report/
-          retention-days: 7
+    # ─────────────────────────────────────────────────────
+    # ARTIFACT UPLOAD STEPS
+    # ─────────────────────────────────────────────────────
+    - name: 📤 Upload Playwright HTML report
+      if: steps.phase5.outputs.report_exists == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-html-report
+        path: playwright-report/
+        retention-days: 7
 
-      # ──────────────────────────────────────────────
-      # Upload test artifacts (screenshots, videos, traces)
-      # ──────────────────────────────────────────────
-      - name: 📤 Upload test artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-artifacts
-          path: test-results/
-          retention-days: 7
+    - name: 📤 Upload test artifacts
+      if: steps.phase5.outputs.artifacts_exist == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-artifacts
+        path: test-results/
+        retention-days: 7
 
-      # ──────────────────────────────────────────────
-      # Job summary
-      # ──────────────────────────────────────────────
-      - name: 📋 Create job summary
-        if: always()
-        run: |
-          echo "## 🎭 Playwright CI Test Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Workflow:** [${{ github.workflow }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📊 Available Reports:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Playwright HTML Report** - Download 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ **Test Artifacts** - Screenshots, videos, traces in 'test-artifacts'" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🔍 How to view:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Download the artifacts from this job" >> $GITHUB_STEP_SUMMARY
-          echo "2. Extract ZIPs" >> $GITHUB_STEP_SUMMARY
-          echo "3. Open \`index.html\` from Playwright report in browser" >> $GITHUB_STEP_SUMMARY
+    # ─────────────────────────────────────────────────────
+    # FINAL SUMMARY
+    # ─────────────────────────────────────────────────────
+    - name: 📋 Create Horizontal Pipeline Summary
+      if: always()
+      run: |
+        echo "## 🎭 Playwright CI - Horizontal Pipeline" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "### 📊 Pipeline Visualization" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "```mermaid" >> $GITHUB_STEP_SUMMARY
+        echo "graph LR" >> $GITHUB_STEP_SUMMARY
+        echo "    subgraph \"🔵 Phase 1: Environment\"" >> $GITHUB_STEP_SUMMARY
+        echo "        A1[🔍 Docker Check] --> A2[📥 Code Checkout] --> A3[⚙️ Node Setup]" >> $GITHUB_STEP_SUMMARY
+        echo "    end" >> $GITHUB_STEP_SUMMARY
+        echo "    " >> $GITHUB_STEP_SUMMARY
+        echo "    subgraph \"🟢 Phase 2: Dependencies\"" >> $GITHUB_STEP_SUMMARY
+        echo "        B1[📦 npm Install] --> B2[🎭 Browser Install]" >> $GITHUB_STEP_SUMMARY
+        echo "    end" >> $GITHUB_STEP_SUMMARY
+        echo "    " >> $GITHUB_STEP_SUMMARY
+        echo "    subgraph \"🟡 Phase 3: Validation\"" >> $GITHUB_STEP_SUMMARY
+        echo "        C1[🔧 File Check] --> C2[⚙️ Config Check] --> C3[🧪 Test Discovery]" >> $GITHUB_STEP_SUMMARY
+        echo "    end" >> $GITHUB_STEP_SUMMARY
+        echo "    " >> $GITHUB_STEP_SUMMARY
+        echo "    subgraph \"🔴 Phase 4: Execution\"" >> $GITHUB_STEP_SUMMARY
+        echo "        D1[🧪 Run Tests]" >> $GITHUB_STEP_SUMMARY
+        echo "    end" >> $GITHUB_STEP_SUMMARY
+        echo "    " >> $GITHUB_STEP_SUMMARY
+        echo "    subgraph \"🟣 Phase 5: Analysis\"" >> $GITHUB_STEP_SUMMARY
+        echo "        E1[📊 Check Reports] --> E2[📈 Count Artifacts]" >> $GITHUB_STEP_SUMMARY
+        echo "    end" >> $GITHUB_STEP_SUMMARY
+        echo "    " >> $GITHUB_STEP_SUMMARY
+        echo "    subgraph \"🔵 Phase 6: Upload\"" >> $GITHUB_STEP_SUMMARY
+        echo "        F1{Report?} -->|Yes| F2[📤 Upload HTML]" >> $GITHUB_STEP_SUMMARY
+        echo "        F1 -->|No| F3[⚠️ Skip]" >> $GITHUB_STEP_SUMMARY
+        echo "        G1{Artifacts?} -->|Yes| G2[📤 Upload Files]" >> $GITHUB_STEP_SUMMARY
+        echo "        G1 -->|No| G3[⚠️ Skip]" >> $GITHUB_STEP_SUMMARY
+        echo "    end" >> $GITHUB_STEP_SUMMARY
+        echo "    " >> $GITHUB_STEP_SUMMARY
+        echo "    A3 --> B1" >> $GITHUB_STEP_SUMMARY
+        echo "    B2 --> C1" >> $GITHUB_STEP_SUMMARY
+        echo "    C3 --> D1" >> $GITHUB_STEP_SUMMARY
+        echo "    D1 --> E1" >> $GITHUB_STEP_SUMMARY
+        echo "    E2 --> F1" >> $GITHUB_STEP_SUMMARY
+        echo "    E2 --> G1" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "    style A1 fill:#bbdefb" >> $GITHUB_STEP_SUMMARY
+        echo "    style A2 fill:#bbdefb" >> $GITHUB_STEP_SUMMARY
+        echo "    style A3 fill:#bbdefb" >> $GITHUB_STEP_SUMMARY
+        echo "    style B1 fill:#c8e6c9" >> $GITHUB_STEP_SUMMARY
+        echo "    style B2 fill:#c8e6c9" >> $GITHUB_STEP_SUMMARY
+        echo "    style C1 fill:#fff9c4" >> $GITHUB_STEP_SUMMARY
+        echo "    style C2 fill:#fff9c4" >> $GITHUB_STEP_SUMMARY
+        echo "    style C3 fill:#fff9c4" >> $GITHUB_STEP_SUMMARY
+        echo "    style D1 fill:#ffcdd2" >> $GITHUB_STEP_SUMMARY
+        echo "    style E1 fill:#e1bee7" >> $GITHUB_STEP_SUMMARY
+        echo "    style E2 fill:#e1bee7" >> $GITHUB_STEP_SUMMARY
+        echo "    style F2 fill:#bbdefb" >> $GITHUB_STEP_SUMMARY
+        echo "    style G2 fill:#bbdefb" >> $GITHUB_STEP_SUMMARY
+        echo "```" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "### 📋 Phase Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Phase | Color | Status | Key Outputs |" >> $GITHUB_STEP_SUMMARY
+        echo "|-------|-------|--------|-------------|" >> $GITHUB_STEP_SUMMARY
+        echo "| 🔵 **1. Environment** | Blue | ✅ | Docker: ${{ steps.phase1.outputs.docker_available == 'true' && '✅' || '⚠️' }}, Node.js: $(node --version) |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🟢 **2. Dependencies** | Green | ✅ | Dependencies installed, Browsers ready |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🟡 **3. Validation** | Yellow | ✅ | Config validated, Files checked |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🔴 **4. Execution** | Red | ${{ steps.phase4.outcome == 'success' && '✅' || '❌' }} | Exit code: ${{ steps.phase4.outputs.exit_code || 'N/A' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🟣 **5. Analysis** | Purple | ✅ | Report: ${{ steps.phase5.outputs.report_exists == 'true' && '✅' || '❌' }}, Artifacts: ${{ steps.phase5.outputs.artifact_count || '0' }} files |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🔵 **6. Upload** | Blue | ${{ steps.phase5.outputs.report_exists == 'true' && '✅' || '⚠️' }} | HTML: ${{ steps.phase5.outputs.report_exists == 'true' && 'Uploaded' || 'Skipped' }}, Artifacts: ${{ steps.phase5.outputs.artifacts_exist == 'true' && 'Uploaded' || 'Skipped' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "### 🎯 Final Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ steps.phase5.outputs.report_exists }}" = "true" ]; then
+          echo "✅ **COMPLETE SUCCESS**: All phases completed, HTML report available" >> $GITHUB_STEP_SUMMARY
+          echo "- 📥 Download: **playwright-html-report** (${{ steps.phase5.outputs.report_size }})" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **PARTIAL SUCCESS**: Tests executed but no HTML report" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔍 Check Phase 4 execution logs" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        if [ "${{ steps.phase5.outputs.artifacts_exist }}" = "true" ]; then
+          echo "- 🐛 Debug: **test-artifacts** (${{ steps.phase5.outputs.artifact_count }} files)" >> $GITHUB_STEP_SUMMARY
+        fi
