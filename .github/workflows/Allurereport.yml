@@ -1,4 +1,4 @@
-name: Playwright CI ON DEMAND Allure
+name: Allure CI ON DEMAND Allure
 
 on:
   workflow_dispatch:  # Manual trigger ONLY
@@ -55,19 +55,30 @@ jobs:
         continue-on-error: true
 
       # ──────────────────────────────────────────────
-      # Generate Allure report using working Action
+      # Generate Allure report
       # ──────────────────────────────────────────────
-      - name: 🦄 Generate & Upload Allure HTML report
+      - name: 🦄 Generate Allure HTML report
         uses: andgineer/allure-report@v3.6
         id: allure_report
         if: always()
         with:
           allure-results: "allure-results"
-          reports-site-path: "tests"
+          reports-site-path: "allure-report"    # output folder
           report-name: "Playwright Tests"
           ci-name: "GitHub Actions"
           max-reports: 10
           summary: true
+
+      # ──────────────────────────────────────────────
+      # Upload Allure HTML report as artifact
+      # ──────────────────────────────────────────────
+      - name: 📤 Upload Allure HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: allure-html-report
+          path: allure-report/
+          retention-days: 7
 
       # ──────────────────────────────────────────────
       # Upload Playwright HTML report
@@ -81,7 +92,7 @@ jobs:
           retention-days: 7
 
       # ──────────────────────────────────────────────
-      # Upload Allure results as backup
+      # Upload Allure raw results as backup
       # ──────────────────────────────────────────────
       - name: 📤 Upload Allure raw results
         uses: actions/upload-artifact@v4
@@ -104,7 +115,7 @@ jobs:
           retention-days: 7
 
       # ──────────────────────────────────────────────
-      # Job summary with links
+      # Job summary with artifact links
       # ──────────────────────────────────────────────
       - name: 📋 Create job summary
         if: always()
@@ -119,14 +130,13 @@ jobs:
           echo "### 📊 Available Reports:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Check what reports are available
           if [ -d "playwright-report" ] && [ -f "playwright-report/index.html" ]; then
             echo "✅ **Playwright HTML Report** - Download 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
-          if [ -d "allure-results" ] && [ "$(ls -A allure-results 2>/dev/null)" ]; then
-            echo "✅ **Allure Results Generated** - Data available in 'allure-results-raw'" >> $GITHUB_STEP_SUMMARY
+          if [ -d "allure-report" ]; then
+            echo "✅ **Allure HTML Report** - Download 'allure-html-report' artifact" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
           
@@ -137,15 +147,6 @@ jobs:
           
           echo "### 🔍 How to view reports:" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### 1. Playwright Report (Easiest):" >> $GITHUB_STEP_SUMMARY
-          echo "1. Download 'playwright-html-report' artifact" >> $GITHUB_STEP_SUMMARY
-          echo "2. Extract ZIP" >> $GITHUB_STEP_SUMMARY
-          echo "3. Open `index.html` in browser" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "#### 2. Allure Report:" >> $GITHUB_STEP_SUMMARY
-          echo "The Allure action generates a hosted report at:" >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.allure_report.outputs.report-url || 'URL not available' }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### 3. For Debugging Failed Tests:" >> $GITHUB_STEP_SUMMARY
-          echo "- Download 'test-artifacts' for screenshots/videos" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the artifacts from this job" >> $GITHUB_STEP_SUMMARY
+          echo "2. Extract ZIPs" >> $GITHUB_STEP_SUMMARY
+          echo "3. Open `index.html` from Playwright or Allure report in browser" >> $GITHUB_STEP_SUMMARY
