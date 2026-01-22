@@ -1,0 +1,346 @@
+name: Playwright CI ON DEMAND
+
+on:
+  workflow_dispatch:  # Manual trigger ONLY
+
+jobs:
+  playwright-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: ⚙️ Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: 📦 Install dependencies
+      run: npm ci
+
+    - name: 🎭 Install Playwright browsers
+      run: npx playwright install --with-deps chromium
+
+    - name: 🧪 Run Playwright tests with detailed output
+      id: run-tests
+      run: |
+        echo "Running Playwright tests..."
+        
+        # Create a temporary file for test output
+        TEST_OUTPUT_FILE="playwright-test-output.txt"
+        
+        # Run tests and capture output
+        npx playwright test --config=playwright.ci.config.js \
+          --reporter=html,line \
+          --reporter=json,playwright-results.json \
+          2>&1 | tee "$TEST_OUTPUT_FILE"
+        
+        # Capture exit code
+        TEST_EXIT_CODE=$?
+        echo "TEST_EXIT_CODE=$TEST_EXIT_CODE" >> $GITHUB_ENV
+        
+        # Save test output
+        echo "TEST_OUTPUT_FILE=$TEST_OUTPUT_FILE" >> $GITHUB_ENV
+        
+        # Extract key metrics for summary
+        TOTAL_TESTS=$(grep -o "[0-9]\+ tests" "$TEST_OUTPUT_FILE" | head -1 | grep -o "[0-9]\+" || echo "0")
+        PASSED_TESTS=$(grep -o "[0-9]\+ passed" "$TEST_OUTPUT_FILE" | head -1 | grep -o "[0-9]\+" || echo "0")
+        FAILED_TESTS=$(grep -o "[0-9]\+ failed" "$TEST_OUTPUT_FILE" | head -1 | grep -o "[0-9]\+" || echo "0")
+        SKIPPED_TESTS=$(grep -o "[0-9]\+ skipped" "$TEST_OUTPUT_FILE" | head -1 | grep -o "[0-9]\+" || echo "0")
+        FLAKY_TESTS=$(grep -o "[0-9]\+ flaky" "$TEST_OUTPUT_FILE" | head -1 | grep -o "[0-9]\+" || echo "0")
+        DURATION=$(grep -o "in [0-9]\+[\.][0-9]\+s" "$TEST_OUTPUT_FILE" | tail -1 | sed 's/in //' || echo "N/A")
+        
+        echo "TOTAL_TESTS=$TOTAL_TESTS" >> $GITHUB_ENV
+        echo "PASSED_TESTS=$PASSED_TESTS" >> $GITHUB_ENV
+        echo "FAILED_TESTS=$FAILED_TESTS" >> $GITHUB_ENV
+        echo "SKIPPED_TESTS=$SKIPPED_TESTS" >> $GITHUB_ENV
+        echo "FLAKY_TESTS=$FLAKY_TESTS" >> $GITHUB_ENV
+        echo "DURATION=$DURATION" >> $GITHUB_ENV
+        
+        # Calculate pass percentage
+        if [ "$TOTAL_TESTS" -gt 0 ]; then
+          PASS_PERCENT=$((PASSED_TESTS * 100 / TOTAL_TESTS))
+          echo "PASS_PERCENT=$PASS_PERCENT" >> $GITHUB_ENV
+        else
+          echo "PASS_PERCENT=0" >> $GITHUB_ENV
+        fi
+
+    - name: 📊 Generate Enhanced Test Report
+      if: always()
+      run: |
+        echo "# 🎭 Playwright UI Test Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**📅 Test Execution Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "**🔄 Triggered By:** Manual (${{ github.actor }})" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Overall Status Banner
+        if [ "${TEST_EXIT_CODE}" = "0" ]; then
+          echo "## 🟢 ALL TESTS PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Great news! All UI tests passed successfully.**" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## 🔴 TESTS FAILED" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "❌ **Some tests require attention. ${FAILED_TESTS} test(s) failed.**" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # 📊 Test Metrics Dashboard
+        echo "### 📊 Test Execution Dashboard" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Visual progress bar
+        if [ "$TOTAL_TESTS" -gt 0 ]; then
+          PASS_RATE=$((PASSED_TESTS * 100 / TOTAL_TESTS))
+          
+          echo "**Test Success Rate:**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$PASS_RATE" -eq 100 ]; then
+            echo "🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢 100%" >> $GITHUB_STEP_SUMMARY
+          elif [ "$PASS_RATE" -ge 90 ]; then
+            echo "🟢🟢🟢🟢🟢🟢🟢🟢🟢🟡 $(PASS_RATE)%" >> $GITHUB_STEP_SUMMARY
+          elif [ "$PASS_RATE" -ge 80 ]; then
+            echo "🟢🟢🟢🟢🟢🟢🟢🟡🟡🟡 $(PASS_RATE)%" >> $GITHUB_STEP_SUMMARY
+          elif [ "$PASS_RATE" -ge 70 ]; then
+            echo "🟢🟢🟢🟢🟢🟡🟡🟡🟡🟡 $(PASS_RATE)%" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴 $(PASS_RATE)%" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Metrics Table
+        echo "| Metric | Value | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Total Tests | ${TOTAL_TESTS} | 📋 |" >> $GITHUB_STEP_SUMMARY
+        echo "| Passed | ${PASSED_TESTS} | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Failed | ${FAILED_TESTS} | ❌ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Skipped | ${SKIPPED_TESTS} | ⏭️ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Flaky | ${FLAKY_TESTS} | 🌀 |" >> $GITHUB_STEP_SUMMARY
+        echo "| Duration | ${DURATION} | ⏱️ |" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "$TOTAL_TESTS" -gt 0 ]; then
+          echo "| Success Rate | ${PASS_PERCENT}% | 📈 |" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # 🎯 Detailed Test Results
+        echo "### 🎯 Test Results Breakdown" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -f "playwright-test-output.txt" ]; then
+          # Show passed tests
+          echo "#### ✅ Passing Tests" >> $GITHUB_STEP_SUMMARY
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>Show ${PASSED_TESTS} passing tests</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep "✓" playwright-test-output.txt | head -20 | sed 's/✓/✅/g' >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No passing test details available" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show failed tests with details
+          if [ "$FAILED_TESTS" -gt 0 ]; then
+            echo "#### ❌ Failing Tests (${FAILED_TESTS} total)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract failed test details
+            FAILED_TEST_DETAILS=$(grep -A3 "✗" playwright-test-output.txt | head -30)
+            if [ -n "$FAILED_TEST_DETAILS" ]; then
+              echo "**These tests need fixing:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "$FAILED_TEST_DETAILS" | sed 's/✗/❌/g' >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              # Try to extract specific error messages
+              echo "**Common Error Patterns:**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              if grep -qi "timeout\|timed out" playwright-test-output.txt; then
+                echo "⏱️ **Timeout Issues:** Elements not loading in time" >> $GITHUB_STEP_SUMMARY
+              fi
+              
+              if grep -qi "not found\|not visible" playwright-test-output.txt; then
+                echo "🔍 **Element Not Found:** Selectors might be wrong" >> $GITHUB_STEP_SUMMARY
+              fi
+              
+              if grep -qi "assert\|expect" playwright-test-output.txt | grep -q "failed"; then
+                echo "❓ **Assertion Failed:** Expected condition not met" >> $GITHUB_STEP_SUMMARY
+              fi
+              
+              if grep -qi "network\|request failed" playwright-test-output.txt; then
+                echo "🌐 **Network Issues:** API calls failing" >> $GITHUB_STEP_SUMMARY
+              fi
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Show skipped tests
+          if [ "$SKIPPED_TESTS" -gt 0 ]; then
+            echo "#### ⏭️ Skipped Tests" >> $GITHUB_STEP_SUMMARY
+            echo "${SKIPPED_TESTS} tests were skipped (usually due to @skip tag or conditional logic)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+        fi
+        
+        # 📱 Test Coverage by Feature
+        echo "### 📱 Test Coverage Analysis" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -f "playwright-test-output.txt" ]; then
+          echo "**Tests organized by feature:**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Count tests by common patterns (customize based on your test structure)
+          LOGIN_TESTS=$(grep -c "login\|Login" playwright-test-output.txt || echo "0")
+          NAVIGATION_TESTS=$(grep -c "navigation\|Navigation\|navigate" playwright-test-output.txt || echo "0")
+          FORM_TESTS=$(grep -c "form\|Form\|submit\|input" playwright-test-output.txt || echo "0")
+          API_TESTS=$(grep -c "api\|API\|request" playwright-test-output.txt || echo "0")
+          UI_TESTS=$(grep -c "ui\|UI\|component\|layout" playwright-test-output.txt || echo "0")
+          
+          echo "| Feature Area | Test Count | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------------|------------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔐 Authentication | ${LOGIN_TESTS} tests | Login/logout flows |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🧭 Navigation | ${NAVIGATION_TESTS} tests | Page routing & menus |" >> $GITHUB_STEP_SUMMARY
+          echo "| 📝 Forms & Inputs | ${FORM_TESTS} tests | Form validation & submission |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔗 API Integration | ${API_TESTS} tests | Backend communication |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🎨 UI Components | ${UI_TESTS} tests | Visual rendering & layout |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # 🚀 Recommendations & Next Steps
+        echo "### 🚀 Recommendations & Actions" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${TEST_EXIT_CODE}" = "0" ]; then
+          echo "✅ **Excellent! UI is stable and ready.**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next Steps:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. 🚀 **Ready for deployment** - All tests pass" >> $GITHUB_STEP_SUMMARY
+          echo "2. 📊 **Review HTML report** for detailed insights" >> $GITHUB_STEP_SUMMARY
+          echo "3. 🔄 **Continue regular testing** to maintain quality" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ **Action Required:** ${FAILED_TESTS} test(s) need attention" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Priority Actions:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. 🔍 **Investigate failures** in HTML report (screenshots & traces available)" >> $GITHUB_STEP_SUMMARY
+          echo "2. 🐛 **Fix critical issues** before next deployment" >> $GITHUB_STEP_SUMMARY
+          echo "3. 📸 **Check screenshots** to see what users would see" >> $GITHUB_STEP_SUMMARY
+          echo "4. 🔄 **Run locally** to debug: \`npx playwright test\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Quality assessment
+          if [ "$PASS_PERCENT" -ge 90 ]; then
+            echo "📊 **Quality Status:** Good (${PASS_PERCENT}% pass rate)" >> $GITHUB_STEP_SUMMARY
+            echo "   - Minor issues only, likely ready for deployment after fixes" >> $GITHUB_STEP_SUMMARY
+          elif [ "$PASS_PERCENT" -ge 70 ]; then
+            echo "📊 **Quality Status:** Needs Improvement (${PASS_PERCENT}% pass rate)" >> $GITHUB_STEP_SUMMARY
+            echo "   - Significant issues, review before deployment" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "📊 **Quality Status:** Poor (${PASS_PERCENT}% pass rate)" >> $GITHUB_STEP_SUMMARY
+            echo "   - Major issues, do not deploy until fixed" >> $GITHUB_STEP_SUMMARY
+          fi
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # 📁 Available Reports & Artifacts
+        echo "### 📁 Available Reports & Debugging Tools" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "**Download these artifacts for detailed analysis:**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        echo "| Artifact | Purpose | How to Use |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|---------|------------|" >> $GITHUB_STEP_SUMMARY
+        echo "| 📊 **HTML Report** | Interactive test results | Download → Extract → Open `index.html` |" >> $GITHUB_STEP_SUMMARY
+        echo "| 📸 **Screenshots** | See what failed | View failed test screenshots |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🎥 **Videos** | Watch test execution | See exact steps that failed |" >> $GITHUB_STEP_SUMMARY
+        echo "| 🕵️ **Traces** | Debug with DevTools | Open in trace viewer |" >> $GITHUB_STEP_SUMMARY
+        echo "| 📋 **JSON Results** | Programmatic analysis | Parse with scripts/CI tools |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Quick links to common issues
+        if [ "$FAILED_TESTS" -gt 0 ]; then
+          echo "**🔍 Quick Debug Tips:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Run single failing test: \`npx playwright test tests/file.spec.js:line\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Run in UI mode: \`npx playwright test --ui\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Run with debug: \`PWDEBUG=1 npx playwright test\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # 📈 Performance Metrics (if available)
+        if [ -f "playwright-results.json" ]; then
+          echo "### ⚡ Performance Insights" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Extract timing info from JSON if available
+          AVG_TIME=$(jq -r '.suites[].specs[] | select(.tests[].results[].status=="passed") | .tests[].results[].duration | select(.!=null)' playwright-results.json 2>/dev/null | awk '{sum+=$1; count++} END {if(count>0) printf "%.2f", sum/count}' || echo "N/A")
+          
+          if [ "$AVG_TIME" != "N/A" ]; then
+            echo "**Average Test Duration:** ${AVG_TIME}s" >> $GITHUB_STEP_SUMMARY
+            if (( $(echo "$AVG_TIME > 5" | bc -l 2>/dev/null) )); then
+              echo "⚠️ Tests are slow (consider optimization)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ Test speed is good" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # 🎯 Final Status
+        echo "### 🏁 Final Status" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${TEST_EXIT_CODE}" = "0" ]; then
+          echo "🟢 **UI TESTING PASSED** - Ready for next steps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**What to tell stakeholders:**" >> $GITHUB_STEP_SUMMARY
+          echo "> 'All UI tests passed successfully. The user interface is stable and ready for use.'" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "🔴 **UI TESTING FAILED** - Review required" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**What to tell stakeholders:**" >> $GITHUB_STEP_SUMMARY
+          echo "> '${FAILED_TESTS} UI test(s) failed. We need to investigate these issues before proceeding.'" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "---" >> $GITHUB_STEP_SUMMARY
+        echo "*Report includes: 📊 Metrics + ❌ Failures + 📱 Coverage + 🚀 Actions*" >> $GITHUB_STEP_SUMMARY
+
+    - name: 📤 Upload Playwright HTML report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: playwright-html-report
+        path: playwright-report/
+        retention-days: 7
+
+    - name: 📤 Upload test artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-artifacts
+        path: |
+          test-results/
+          screenshots/
+          videos/
+          traces/
+          playwright-results.json
+          playwright-test-output.txt
+        retention-days: 7
+
+    - name: 🚨 Fail the job if tests failed
+      if: failure()
+      run: |
+        echo "❌ Playwright tests failed. ${FAILED_TESTS} test(s) need attention."
+        echo ""
+        echo "Review the HTML report and test artifacts for details."
+        exit 1
