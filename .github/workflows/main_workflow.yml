@@ -11,6 +11,7 @@ on:
         - Web Tests
         - Mobile Tests
         - Performance Tests
+        - Security Tests  # Added
         - All Tests
       test_suite:
         description: '📂 Which test suite?'
@@ -76,21 +77,32 @@ jobs:
           
           if [ "$TEST_TYPE" = "Web Tests" ]; then
             BASE_PATH="./tests/web"
+            if [ "$TEST_SUITE" = "Smoke" ]; then
+              TEST_PATH="./tests/Smoke"
+            elif [ "$TEST_SUITE" != "All" ]; then
+              TEST_PATH="$BASE_PATH/$TEST_SUITE"
+            else
+              TEST_PATH="$BASE_PATH"
+            fi
+            
           elif [ "$TEST_TYPE" = "Mobile Tests" ]; then
             BASE_PATH="./tests/mobile"
-          elif [ "$TEST_TYPE" = "Performance Tests" ]; then
-            BASE_PATH="./tests/performance"
-          else
-            BASE_PATH="."
-          fi
-          
-          if [ "$TEST_SUITE" != "All" ] && [ "$TEST_TYPE" != "Performance Tests" ] && [ "$TEST_TYPE" != "All Tests" ]; then
-            TEST_PATH="$BASE_PATH/$TEST_SUITE"
-          else
+            # Mobile doesn't have suite subdirectories
             TEST_PATH="$BASE_PATH"
+            
+          elif [ "$TEST_TYPE" = "Performance Tests" ]; then
+            # Correct path based on your structure
+            TEST_PATH="./tests/mobile/performance"
+            
+          elif [ "$TEST_TYPE" = "Security Tests" ]; then
+            TEST_PATH="./tests/security"
+            
+          else  # All Tests
+            TEST_PATH="./tests"
           fi
           
           echo "TEST_PATH=$TEST_PATH" >> $GITHUB_OUTPUT
+          echo "Configured path: $TEST_PATH"
 
   execute_tests:
     needs: validate_and_trigger
@@ -108,7 +120,7 @@ jobs:
 
   generate_reports:
     needs: execute_tests
-    if: always()  # 👈 CRITICAL: Run even if tests fail
+    if: always()
     uses: ./.github/workflows/report_generator.yml
     with:
       test_type: ${{ github.event.inputs.test_type }}
