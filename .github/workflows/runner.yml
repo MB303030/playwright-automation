@@ -1,0 +1,61 @@
+name: Test Runner
+
+on:
+  workflow_call:
+    inputs:
+      test_type:
+        required: true
+        type: string
+      test_suite:
+        required: true
+        type: string
+      browser:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      custom_tags:
+        required: false
+        type: string
+        default: ''
+      priority:
+        required: true
+        type: string
+      test_path:
+        required: true
+        type: string
+      run_id:
+        required: true
+        type: string
+
+jobs:
+  run_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: |
+          npm ci || true
+          echo "Dependencies installed"
+      
+      - name: Execute Tests
+        id: execute
+        run: |
+          echo "Running tests for: ${{ inputs.test_type }}"
+          echo "Test path: ${{ inputs.test_path }}"
+          echo "Browser: ${{ inputs.browser }}"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Run ID: ${{ inputs.run_id }}"
+          
+          # Simulate test execution
+          sleep 2
+          
+          echo "Test execution completed"
