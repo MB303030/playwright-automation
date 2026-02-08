@@ -1,18 +1,28 @@
-name: Run Playwright Tests
+name: main
 
 on:
   workflow_dispatch:
     inputs:
-      test_suite:
-        description: '📂 Which test suite to run?'
+      test_type:
+        description: '📂 Type of tests to run'
         required: true
+        type: choice
+        options:
+        - Web Tests
+        - Performance Tests
+        - Security Tests
+        - All Tests
+        default: 'Web Tests'
+      test_suite:
+        description: '📁 Test suite (for Web Tests only)'
+        required: false
         type: choice
         options:
         - Smoke
         - Regression
         - Sanity
         - Negative
-        - All Tests
+        - All
         default: 'Smoke'
       project:
         description: '⚙️ Which Playwright project to use?'
@@ -46,27 +56,50 @@ jobs:
       - name: 🎯 Show Selection
         run: |
           echo "=== 🎯 SELECTED OPTIONS ==="
+          echo "Test Type: ${{ github.event.inputs.test_type }}"
           echo "Test Suite: ${{ github.event.inputs.test_suite }}"
           echo "Project: ${{ github.event.inputs.project }}"
           echo "Tags: ${{ github.event.inputs.tags }}"
           echo "==========================="
       
       - name: 📂 Check Test Directory
+        id: check_path
         run: |
           echo "=== 📁 CHECKING TEST FILES ==="
           
-          if [ "${{ github.event.inputs.test_suite }}" = "All Tests" ]; then
-            TEST_PATH="./tests/web"
+          # Determine test path based on test type and suite
+          TEST_TYPE="${{ github.event.inputs.test_type }}"
+          TEST_SUITE="${{ github.event.inputs.test_suite }}"
+          
+          if [ "$TEST_TYPE" = "Web Tests" ]; then
+            if [ "$TEST_SUITE" = "All" ]; then
+              TEST_PATH="./tests/web"
+              echo "Running ALL Web tests from: $TEST_PATH"
+            else
+              TEST_PATH="./tests/web/$TEST_SUITE"
+              echo "Running $TEST_SUITE tests from: $TEST_PATH"
+            fi
+          
+          elif [ "$TEST_TYPE" = "Performance Tests" ]; then
+            TEST_PATH="./tests/performance/Web"
+            echo "Running Performance tests from: $TEST_PATH"
+          
+          elif [ "$TEST_TYPE" = "Security Tests" ]; then
+            TEST_PATH="./tests/security"
+            echo "Running Security tests from: $TEST_PATH"
+          
+          else  # All Tests
+            TEST_PATH="./tests"
             echo "Running ALL tests from: $TEST_PATH"
-          else
-            TEST_PATH="./tests/web/${{ github.event.inputs.test_suite }}"
-            echo "Running ${{ github.event.inputs.test_suite }} tests from: $TEST_PATH"
           fi
           
+          echo "Test Path: $TEST_PATH"
+          
+          # Check if directory exists
           if [ ! -d "$TEST_PATH" ]; then
             echo "❌ ERROR: Directory '$TEST_PATH' does not exist!"
             echo ""
-            echo "Available directories:"
+            echo "Available test directories:"
             find ./tests -type d -name "*" | sort
             exit 1
           fi
@@ -75,6 +108,9 @@ jobs:
           echo ""
           echo "📄 Test files found:"
           find "$TEST_PATH" -name "*.spec.js" -type f 2>/dev/null || echo "No .spec.js files found"
+          
+          # Save the test path for later steps
+          echo "TEST_PATH=$TEST_PATH" >> $GITHUB_OUTPUT
       
       - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
@@ -97,13 +133,7 @@ jobs:
         run: |
           echo "=== 🧪 RUNNING TESTS ==="
           
-          # Determine test path
-          if [ "${{ github.event.inputs.test_suite }}" = "All Tests" ]; then
-            TEST_PATH="./tests/web"
-          else
-            TEST_PATH="./tests/web/${{ github.event.inputs.test_suite }}"
-          fi
-          
+          TEST_PATH="${{ steps.check_path.outputs.TEST_PATH }}"
           echo "Test Path: $TEST_PATH"
           
           # Build the command
@@ -135,12 +165,23 @@ jobs:
           
           echo ""
           echo "✅ Test execution completed!"
+          
+          # Check if HTML report was generated
+          echo ""
+          echo "=== 📊 CHECKING HTML REPORT ==="
+          if [ -d "./playwright-report" ]; then
+            echo "✅ HTML report generated successfully!"
+            echo "📁 Report location: ./playwright-report/"
+            echo "📄 Main file: ./playwright-report/index.html"
+          else
+            echo "⚠️ HTML report directory not found!"
+          fi
       
       - name: 📦 Upload Playwright Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}
+          name: playwright-report-${{ github.event.inputs.test_type }}-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}
           path: ./playwright-report
           retention-days: 7
       
@@ -148,7 +189,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}
+          name: test-results-${{ github.event.inputs.test_type }}-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}
           path: ./test-results
           retention-days: 7
       
@@ -159,7 +200,12 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "**Test Configuration:**" >> $GITHUB_STEP_SUMMARY
-          echo "- **Test Suite:** ${{ github.event.inputs.test_suite }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Test Type:** ${{ github.event.inputs.test_type }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ github.event.inputs.test_type }}" = "Web Tests" ]; then
+            echo "- **Test Suite:** ${{ github.event.inputs.test_suite }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           echo "- **Project:** ${{ github.event.inputs.project }}" >> $GITHUB_STEP_SUMMARY
           
           if [ -n "${{ github.event.inputs.tags }}" ]; then
@@ -170,8 +216,8 @@ jobs:
           
           echo "**📥 Download Reports:**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. **HTML Report:** playwright-report-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}" >> $GITHUB_STEP_SUMMARY
-          echo "2. **Raw Results:** test-results-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}" >> $GITHUB_STEP_SUMMARY
+          echo "1. **HTML Report:** playwright-report-${{ github.event.inputs.test_type }}-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Raw Results:** test-results-${{ github.event.inputs.test_type }}-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           echo "**How to view:**" >> $GITHUB_STEP_SUMMARY
