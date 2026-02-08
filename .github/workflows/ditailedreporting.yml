@@ -51,23 +51,162 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-
-          echo "Running ${{ inputs['test-category'] }} tests on ${{ inputs.browser }}..."
-
+          
+          echo "=========================================="
+          echo "🚀 RUNNING PLAYWRIGHT TESTS"
+          echo "=========================================="
+          echo "Category: ${{ inputs['test-category'] }}"
+          echo "Browser: ${{ inputs.browser }}"
+          echo "=========================================="
+          
           # Map browser input → Playwright project
           PROJECT=""
           case "${{ inputs.browser }}" in
             chromium)
               PROJECT="chrome"
+              echo "Using project: chrome (Desktop Chrome)"
               ;;
             firefox)
               PROJECT="firefox"
+              echo "Using project: firefox (Desktop Firefox)"
               ;;
             webkit)
               PROJECT="mobile-safari"
+              echo "Using project: mobile-safari (iPhone 12)"
               ;;
           esac
+          
+          TEST_PATH=""
+          case "${{ inputs['test-category'] }}" in
+            mobile)
+              TEST_PATH="tests/mobile/"
+              echo "Test path: tests/mobile/"
+              ;;
+            security)
+              TEST_PATH="tests/security/"
+              echo "Test path: tests/security/"
+              ;;
+            web)
+              TEST_PATH="tests/web/"
+              echo "Test path: tests/web/"
+              ;;
+            smoke)
+              TEST_PATH="tests/Smoke/"
+              echo "Test path: tests/Smoke/"
+              ;;
+            performance)
+              TEST_PATH="tests/mobile/performance/"
+              echo "Test path: tests/mobile/performance/"
+              ;;
+            all)
+              TEST_PATH="tests/"
+              echo "Test path: tests/ (ALL TESTS)"
+              ;;
+          esac
+          
+          echo "=========================================="
+          echo "📋 TESTS TO BE EXECUTED:"
+          echo "=========================================="
+          
+          # Show which test files will be run
+          find "$TEST_PATH" -name "*.spec.js" -o -name "*.spec.ts" 2>/dev/null | while read file; do
+            if [ -f "$file" ]; then
+              echo "  ✅ $(basename "$file")"
+            fi
+          done
+          
+          echo "=========================================="
+          echo "🔧 EXECUTING TESTS..."
+          echo "=========================================="
+          
+          # Run the tests
+          npx playwright test "$TEST_PATH" \
+            --project="$PROJECT" \
+            --reporter=html,line \
+            --output=test-results/ \
+            2>&1 | tee test-output.txt
+          
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          
+          echo "=========================================="
+          echo "📊 TEST EXECUTION COMPLETE"
+          echo "=========================================="
 
+      - name: 📊 Generate Comprehensive Report
+        if: always()
+        run: |
+          echo "# 🎭 PLAYWRIGHT TEST RESULTS" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Test Category:** ${{ inputs['test-category'] }}  " >> "$GITHUB_STEP_SUMMARY"
+          echo "**Browser:** ${{ inputs.browser }}  " >> "$GITHUB_STEP_SUMMARY"
+          echo "**Run ID:** ${{ github.run_id }}  " >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
+          EXIT_CODE=${{ steps.run-tests.outputs.exit_code }}
+          
+          if [ -f "test-output.txt" ]; then
+            # Extract key metrics
+            TOTAL_TESTS=$(grep -o "[0-9]\+ tests" test-output.txt | head -1 | grep -o "[0-9]\+" || echo "0")
+            PASSED_TESTS=$(grep -o "[0-9]\+ passed" test-output.txt | head -1 | grep -o "[0-9]\+" || echo "0")
+            FAILED_TESTS=$(grep -o "[0-9]\+ failed" test-output.txt | head -1 | grep -o "[0-9]\+" || echo "0")
+            SKIPPED_TESTS=$(grep -o "[0-9]\+ skipped" test-output.txt | head -1 | grep -o "[0-9]\+" || echo "0")
+            DURATION=$(grep -o "in [0-9]\+[\.][0-9]\+s" test-output.txt | tail -1 | sed 's/in //' || echo "0s")
+            
+            # Calculate pass rate
+            if [ "$TOTAL_TESTS" -gt 0 ]; then
+              PASS_RATE=$((PASSED_TESTS * 100 / TOTAL_TESTS))
+            else
+              PASS_RATE=0
+            fi
+            
+            echo "## 📈 EXECUTION SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            
+            if [ "$EXIT_CODE" = "0" ]; then
+              echo "### ✅ ALL TESTS PASSED!" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "### ❌ TESTS FAILED" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            
+            echo "| Metric | Value | Status |" >> "$GITHUB_STEP_SUMMARY"
+            echo "|--------|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **Total Tests** | $TOTAL_TESTS | 📊 |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **✅ Passed** | $PASSED_TESTS | $([ "$PASSED_TESTS" -gt 0 ] && echo "✅" || echo "➖") |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **❌ Failed** | $FAILED_TESTS | $([ "$FAILED_TESTS" -eq 0 ] && echo "✅" || echo "⚠️") |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **⏭️ Skipped** | $SKIPPED_TESTS | ℹ️ |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **⏱️ Duration** | $DURATION | 🕒 |" >> "$GITHUB_STEP_SUMMARY"
+            echo "| **📈 Pass Rate** | ${PASS_RATE}% | $([ "$PASS_RATE" -ge 90 ] && echo "🎯" || ([ "$PASS_RATE" -ge 70 ] && echo "⚠️" || echo "❌")) |" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            
+            echo "## 📝 TEST OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            
+            # Show test execution details
+            if [ "$FAILED_TESTS" -gt 0 ]; then
+              echo "### 🔍 FAILING TESTS" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              grep -B2 -A1 "\[FAIL\]\|✗\|×" test-output.txt | head -50 >> "$GITHUB_STEP_SUMMARY" || echo "No specific failure details found" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            
+            echo "### 📋 COMPLETE OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -150 test-output.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            
+          else
+            echo "## ❌ NO TEST OUTPUT FOUND" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "The test output file (test-output.txt) was not generated." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          
+          # List test files in category
+          echo "## 📁 TEST FILES IN CATEGORY" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
           TEST_PATH=""
           case "${{ inputs['test-category'] }}" in
             mobile)
@@ -89,33 +228,36 @@ jobs:
               TEST_PATH="tests/"
               ;;
           esac
-
-          npx playwright test "$TEST_PATH" \
-            --project="$PROJECT" \
-            --reporter=html,line \
-            --output=test-results/ \
-            2>&1 | tee test-output.txt
-
-          EXIT_CODE=${PIPESTATUS[0]}
-          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-
-      - name: 📊 Show Test Results
-        if: always()
-        run: |
-          echo "# 🎭 Test Results - ${{ inputs['test-category'] }}" >> "$GITHUB_STEP_SUMMARY"
+          
+          find "$TEST_PATH" -name "*.spec.js" -o -name "*.spec.ts" 2>/dev/null | sort | while read file; do
+            if [ -f "$file" ]; then
+              echo "- **$(basename "$file")**  " >> "$GITHUB_STEP_SUMMARY"
+              echo "  \`$file\`  " >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done || echo "*No test files found in this category*" >> "$GITHUB_STEP_SUMMARY"
+          
           echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          if [ -f "test-output.txt" ]; then
-            echo "## 📋 Test Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "## 🚀 NEXT STEPS" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
+          if [ "$EXIT_CODE" = "0" ]; then
+            echo "✅ **All tests passed successfully!**" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            grep -E "passed|failed|skipped|tests" test-output.txt | tail -20 >> "$GITHUB_STEP_SUMMARY" || true
-
+            echo "1. **Download the HTML report** for detailed analysis" >> "$GITHUB_STEP_SUMMARY"
+            echo "2. **Check performance metrics** in the report" >> "$GITHUB_STEP_SUMMARY"
+            echo "3. **Proceed with deployment** - tests are ✅" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️ **Action required:**" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "## 📝 Full Output (last 100 lines)" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            tail -100 test-output.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "1. **Download the HTML report** (includes screenshots & traces)" >> "$GITHUB_STEP_SUMMARY"
+            echo "2. **Fix the $FAILED_TESTS failing test(s)**" >> "$GITHUB_STEP_SUMMARY"
+            echo "3. **Check the failing tests section above**" >> "$GITHUB_STEP_SUMMARY"
+            echo "4. **Re-run tests after fixes**" >> "$GITHUB_STEP_SUMMARY"
           fi
+          
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "---" >> "$GITHUB_STEP_SUMMARY"
+          echo "*Report generated: $(date)*" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 📁 Upload Test Report
         if: always()
@@ -126,12 +268,42 @@ jobs:
             playwright-report/
             test-output.txt
             test-results/
-          retention-days: 7
+          retention-days: 14
+
+      - name: 📊 Upload JSON Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs['test-category'] }}-${{ github.run_id }}
+          path: |
+            test-results/
+          retention-days: 30
 
       - name: 🚨 Fail if Tests Failed
         if: always()
         run: |
-          if [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
-            echo "Some tests failed. Check the report above or download the HTML report."
+          EXIT_CODE=${{ steps.run-tests.outputs.exit_code }}
+          
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo ""
+            echo "=========================================="
+            echo "❌ TESTS FAILED"
+            echo "=========================================="
+            echo ""
+            echo "📊 Test run completed with failures."
+            echo "📥 Download the HTML report for detailed analysis."
+            echo "🔍 Check the GitHub summary above for specific failures."
+            echo ""
+            echo "=========================================="
             exit 1
+          else
+            echo ""
+            echo "=========================================="
+            echo "✅ ALL TESTS PASSED"
+            echo "=========================================="
+            echo ""
+            echo "🎉 Excellent! All tests completed successfully."
+            echo "📥 HTML report available for download."
+            echo ""
+            echo "=========================================="
           fi
