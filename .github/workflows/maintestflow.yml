@@ -1,4 +1,4 @@
-name: Main Test Runner
+name: Professional Test Runner
 
 on:
   workflow_dispatch:
@@ -8,39 +8,39 @@ on:
         required: true
         type: choice
         options:
-          - Web Tests
-          - Mobile Tests
-          - Performance Tests
-          - All Tests
+        - Web Tests
+        - Mobile Tests
+        - Performance Tests
+        - All Tests
       test_suite:
         description: '📂 Which test suite?'
         required: false
         type: choice
         options:
-          - Smoke
-          - Sanity
-          - Regression
-          - Negative
-          - All
+        - Smoke
+        - Sanity
+        - Regression
+        - Negative
+        - All
         default: 'All'
       browser:
         description: '🌐 Browser to use'
         required: true
         type: choice
         options:
-          - chrome
-          - firefox
-          - webkit
+        - chrome
+        - firefox
+        - webkit
         default: 'chrome'
       environment:
         description: '🏢 Test environment'
         required: false
         type: choice
         options:
-          - Development
-          - Staging
-          - Production
-          - Custom
+        - Development
+        - Staging
+        - Production
+        - Custom
         default: 'Staging'
       custom_tags:
         description: '🏷️ Custom tags (comma-separated, e.g., @smoke,@critical)'
@@ -51,11 +51,15 @@ on:
         required: false
         type: choice
         options:
-          - P0-Critical
-          - P1-High
-          - P2-Medium
-          - P3-Low
+        - P0-Critical
+        - P1-High
+        - P2-Medium
+        - P3-Low
         default: 'P1-High'
+
+env:
+  CI: true
+  FORCE_COLOR: 1
 
 jobs:
   validate-and-trigger:
@@ -96,7 +100,7 @@ jobs:
 
   execute-tests:
     needs: validate-and-trigger
-    # FIXED: Use the relative path from root
+    # FIXED: Make sure this matches your actual file name
     uses: ./.github/workflows/test-runner.yml
     with:
       test_type: ${{ github.event.inputs.test_type }}
@@ -111,7 +115,7 @@ jobs:
 
   generate-reports:
     needs: execute-tests
-    # FIXED: Use the relative path from root
+    # FIXED: Make sure this matches your actual file name
     uses: ./.github/workflows/report-generator.yml
     with:
       test_type: ${{ github.event.inputs.test_type }}
