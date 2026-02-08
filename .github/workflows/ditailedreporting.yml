@@ -1,273 +1,203 @@
-name: Playwright Tests by Category
+name: Test Suite
 
 on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
   workflow_dispatch:
-    inputs:
-      test-category:
-        description: 'Which tests to run?'
-        required: true
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - mobile
-          - security
-          - web
-          - smoke
-          - performance
-      browser:
-        description: 'Browser to use'
-        required: false
-        default: 'chromium'
-        type: choice
-        options:
-          - chromium
-          - firefox
-          - webkit
+
+env:
+  CI: true
+  FORCE_COLOR: 1
+  NODE_ENV: test
 
 jobs:
-  playwright-tests:
+  test-all:
+    timeout-minutes: 90
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    strategy:
+      matrix:
+        browser: [chrome]  # Add 'firefox', 'webkit' if needed
+    name: Playwright Tests (${{ matrix.browser }})
+    
     steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: |
+        npm ci
+        npx playwright install --with-deps ${{ matrix.browser }}
+    
+    - name: Run Web Tests
+      id: web-tests
+      continue-on-error: true
+      run: |
+        echo "🔵 Running Web Tests..."
+        npx playwright test ./tests/web \
+          --reporter=html,allure-playwright \
+          --project=${{ matrix.browser }} \
+          --retries=1 \
+          --workers=4 \
+          --timeout=60000 \
+          --trace=on \
+          --video=on-first-retry \
+          --screenshot=on \
+          --shard=1/1
+      env:
+        TEST_TYPE: "web"
+        BROWSER: ${{ matrix.browser }}
+    
+    - name: Run Mobile Tests
+      id: mobile-tests
+      continue-on-error: true
+      run: |
+        echo "📱 Running Mobile Tests..."
+        npx playwright test ./tests/mobile \
+          --reporter=html,allure-playwright \
+          --project=${{ matrix.browser }} \
+          --retries=2 \
+          --workers=2 \
+          --timeout=90000 \
+          --trace=on \
+          --video=on-first-retry \
+          --screenshot=on \
+          --shard=1/1
+      env:
+        TEST_TYPE: "mobile"
+        BROWSER: ${{ matrix.browser }}
+    
+    - name: Run Performance Tests
+      id: performance-tests
+      continue-on-error: true
+      run: |
+        echo "⚡ Running Performance Tests..."
+        npx playwright test ./tests/performance \
+          --reporter=html,allure-playwright \
+          --project=${{ matrix.browser }} \
+          --retries=0 \
+          --workers=1 \
+          --timeout=120000 \
+          --trace=on \
+          --video=on \
+          --screenshot=on
+      env:
+        TEST_TYPE: "performance"
+        BROWSER: ${{ matrix.browser }}
+    
+    - name: Generate Allure Report
+      if: always()
+      run: |
+        echo "📊 Generating Allure Report..."
+        npx allure generate allure-results --clean -o allure-report
+        
+        # Create summary file for GitHub Actions
+        echo "# Test Execution Summary" > test-summary.md
+        echo "## Browser: ${{ matrix.browser }}" >> test-summary.md
+        echo "### Test Results:" >> test-summary.md
+        echo "- ✅ Web Tests: ${{ steps.web-tests.outcome }}" >> test-summary.md
+        echo "- 📱 Mobile Tests: ${{ steps.mobile-tests.outcome }}" >> test-summary.md
+        echo "- ⚡ Performance Tests: ${{ steps.performance-tests.outcome }}" >> test-summary.md
+        echo "" >> test-summary.md
+        echo "Reports available in artifacts." >> test-summary.md
+    
+    - name: Archive Playwright HTML Report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-html-report-${{ matrix.browser }}
+        path: playwright-report/
+        retention-days: 30
+    
+    - name: Archive Allure Report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: allure-report-${{ matrix.browser }}
+        path: allure-report/
+        retention-days: 30
+    
+    - name: Archive Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.browser }}
+        path: |
+          test-results/
+          blob-report/
+          allure-results/
+        retention-days: 30
+    
+    - name: Upload Test Summary
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-summary-${{ matrix.browser }}
+        path: test-summary.md
+        retention-days: 30
+    
+    - name: Display Test Summary
+      if: always()
+      run: |
+        echo "=== TEST EXECUTION SUMMARY ==="
+        echo "Browser: ${{ matrix.browser }}"
+        echo "Web Tests: ${{ steps.web-tests.outcome }}"
+        echo "Mobile Tests: ${{ steps.mobile-tests.outcome }}"
+        echo "Performance Tests: ${{ steps.performance-tests.outcome }}"
+        echo "=============================="
+    
+    - name: Notify on Failure
+      if: failure()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        text: "❌ Tests failed on ${{ matrix.browser }}"
+        channel: '#builds'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
-      - name: ⚙️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: 📦 Install dependencies
-        run: npm ci
-
-      - name: 🎭 Install Playwright browsers
-        run: npx playwright install --with-deps
-
-      - name: 🧪 Run Tests
-        id: run-tests
-        continue-on-error: true
-        run: |
-          set +e
-          
-          echo "=========================================="
-          echo "🚀 RUNNING PLAYWRIGHT TESTS"
-          echo "=========================================="
-          echo "Category: ${{ inputs['test-category'] }}"
-          echo "Browser: ${{ inputs.browser }}"
-          echo "=========================================="
-          
-          # Map browser input → Playwright project
-          PROJECT=""
-          case "${{ inputs.browser }}" in
-            chromium)
-              PROJECT="chrome"
-              echo "Using project: chrome (Desktop Chrome)"
-              ;;
-            firefox)
-              PROJECT="firefox"
-              echo "Using project: firefox (Desktop Firefox)"
-              ;;
-            webkit)
-              PROJECT="mobile-safari"
-              echo "Using project: mobile-safari (iPhone 12)"
-              ;;
-          esac
-          
-          # FIXED: Correct paths based on your folder structure
-          TEST_PATH=""
-          case "${{ inputs['test-category'] }}" in
-            mobile)
-              # Mobile performance tests are inside mobile/performance/Web/
-              TEST_PATH="tests/mobile/"
-              echo "Test path: tests/mobile/"
-              echo "This includes:"
-              echo "  - tests/mobile/performance/Web/"
-              echo "  - tests/mobile/*.spec.js"
-              ;;
-            security)
-              TEST_PATH="tests/security/"
-              echo "Test path: tests/security/"
-              ;;
-            web)
-              TEST_PATH="tests/web/"
-              echo "Test path: tests/web/"
-              echo "This includes:"
-              echo "  - tests/web/Negative/"
-              echo "  - tests/web/Regression/"
-              echo "  - tests/web/Sanity/"
-              echo "  - tests/web/*.spec.js"
-              ;;
-            smoke)
-              # Check both possible locations for Smoke tests
-              if [ -d "tests/web/Smoke/" ]; then
-                TEST_PATH="tests/web/Smoke/"
-                echo "Test path: tests/web/Smoke/"
-              elif [ -d "tests/Smoke/" ]; then
-                TEST_PATH="tests/Smoke/"
-                echo "Test path: tests/Smoke/"
-              else
-                echo "ERROR: Smoke tests folder not found!"
-                echo "Looking for: tests/web/Smoke/ or tests/Smoke/"
-                exit 1
-              fi
-              ;;
-            performance)
-              # Performance tests are inside mobile/performance/Web/
-              TEST_PATH="tests/mobile/performance/Web/"
-              echo "Test path: tests/mobile/performance/Web/"
-              ;;
-            all)
-              TEST_PATH="tests/"
-              echo "Test path: tests/ (ALL TESTS)"
-              ;;
-          esac
-          
-          echo "=========================================="
-          echo "📋 CHECKING FOR TEST FILES..."
-          echo "=========================================="
-          
-          # Debug: List files in the test path
-          echo "Listing files in $TEST_PATH:"
-          if [ -d "$TEST_PATH" ]; then
-            find "$TEST_PATH" -type f -name "*.spec.js" -o -name "*.spec.ts" | head -20
-            FILE_COUNT=$(find "$TEST_PATH" -type f -name "*.spec.js" -o -name "*.spec.ts" | wc -l)
-            echo "Found $FILE_COUNT test files"
-          else
-            echo "ERROR: Directory $TEST_PATH does not exist!"
-            echo "Current working directory: $(pwd)"
-            echo "Directory contents of tests/:"
-            ls -la tests/ || echo "No tests/ directory found"
-            exit 1
-          fi
-          
-          echo "=========================================="
-          echo "🔧 EXECUTING TESTS..."
-          echo "=========================================="
-          
-          # Run the tests with debug output
-          echo "Command: npx playwright test \"$TEST_PATH\" --project=\"$PROJECT\" --reporter=html,line --output=test-results/"
-          
-          npx playwright test "$TEST_PATH" \
-            --project="$PROJECT" \
-            --reporter=html,line \
-            --output=test-results/ \
-            2>&1 | tee test-output.txt
-          
-          EXIT_CODE=${PIPESTATUS[0]}
-          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-          
-          echo "=========================================="
-          echo "📊 TEST EXECUTION COMPLETE - Exit Code: $EXIT_CODE"
-          echo "=========================================="
-
-      - name: 📊 Show Test Results
-        if: always()
-        run: |
-          echo "# 🎭 Test Results - ${{ inputs['test-category'] }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Browser:** ${{ inputs.browser }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          
-          if [ -f "test-output.txt" ]; then
-            echo "## 📋 Test Summary" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            
-            # Show the full output but clean it up
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            
-            # Try to extract meaningful output
-            if grep -q "No tests found" test-output.txt; then
-              echo "❌ NO TESTS FOUND!" >> "$GITHUB_STEP_SUMMARY"
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-              echo "This usually means:" >> "$GITHUB_STEP_SUMMARY"
-              echo "1. The test path is incorrect" >> "$GITHUB_STEP_SUMMARY"
-              echo "2. Test files don't have .spec.js or .spec.ts extension" >> "$GITHUB_STEP_SUMMARY"
-              echo "3. Playwright can't find the test files" >> "$GITHUB_STEP_SUMMARY"
-              echo "" >> "$GITHUB_STEP_SUMMARY"
-            fi
-            
-            # Show the last 50 lines of output
-            tail -50 test-output.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            
-            # Show file structure for debugging
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "## 🔍 DEBUG INFO" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            
-            TEST_PATH=""
-            case "${{ inputs['test-category'] }}" in
-              mobile)
-                TEST_PATH="tests/mobile/"
-                ;;
-              security)
-                TEST_PATH="tests/security/"
-                ;;
-              web)
-                TEST_PATH="tests/web/"
-                ;;
-              smoke)
-                if [ -d "tests/web/Smoke/" ]; then
-                  TEST_PATH="tests/web/Smoke/"
-                elif [ -d "tests/Smoke/" ]; then
-                  TEST_PATH="tests/Smoke/"
-                fi
-                ;;
-              performance)
-                TEST_PATH="tests/mobile/performance/Web/"
-                ;;
-              all)
-                TEST_PATH="tests/"
-                ;;
-            esac
-            
-            echo "**Looking for tests in:** \`$TEST_PATH\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            
-            if [ -d "$TEST_PATH" ]; then
-              echo "**Files found:**" >> "$GITHUB_STEP_SUMMARY"
-              echo '```' >> "$GITHUB_STEP_SUMMARY"
-              find "$TEST_PATH" -type f -name "*.js" -o -name "*.ts" | head -30 >> "$GITHUB_STEP_SUMMARY"
-              echo '```' >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "❌ **Directory not found:** \`$TEST_PATH\`" >> "$GITHUB_STEP_SUMMARY"
-            fi
-            
-          else
-            echo "## ❌ NO TEST OUTPUT FOUND" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "The test output file was not generated." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: 📁 Upload Test Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report-${{ inputs['test-category'] }}-${{ github.run_id }}
-          path: |
-            playwright-report/
-            test-output.txt
-            test-results/
-          retention-days: 7
-
-      - name: 🚨 Fail if Tests Failed
-        if: always()
-        run: |
-          if [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
-            echo ""
-            echo "=========================================="
-            echo "❌ TESTS FAILED OR NO TESTS FOUND"
-            echo "=========================================="
-            echo ""
-            echo "Possible issues:"
-            echo "1. Test path might be incorrect"
-            echo "2. No test files found in the directory"
-            echo "3. Playwright configuration issue"
-            echo ""
-            echo "Check the debug info in the report above."
-            echo ""
-            exit 1
-          fi
+  generate-summary:
+    needs: test-all
+    runs-on: ubuntu-latest
+    if: always()
+    name: Generate Combined Report
+    steps:
+    - name: Download All Reports
+      uses: actions/download-artifact@v4
+      with:
+        path: ./all-reports
+    
+    - name: Create Combined Summary
+      run: |
+        echo "# 🧪 Combined Test Report" > combined-summary.md
+        echo "" >> combined-summary.md
+        echo "## 📁 Available Reports:" >> combined-summary.md
+        echo "" >> combined-summary.md
+        
+        # List all reports
+        for report in ./all-reports/*; do
+          echo "### $(basename $report)" >> combined-summary.md
+          echo "- [Download]($(basename $report))" >> combined-summary.md
+          echo "" >> combined-summary.md
+        done
+        
+        echo "---" >> combined-summary.md
+        echo "*Report generated on $(date)*" >> combined-summary.md
+    
+    - name: Upload Combined Summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: combined-test-reports
+        path: |
+          ./all-reports/
+          combined-summary.md
+        retention-days: 30
