@@ -1,0 +1,68 @@
+name: 🎯 Test Runner - Main
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Select test type'
+        required: true
+        type: choice
+        options:
+        - Web Tests
+        - Mobile Tests
+        - Performance Tests
+      browser:
+        description: 'Select browser'
+        required: true
+        type: choice
+        options:
+        - chrome
+        - firefox
+        - webkit
+        default: 'chrome'
+      test_suite:
+        description: 'Select test suite'
+        required: false
+        type: choice
+        options:
+        - Smoke
+        - Regression
+        - All
+        default: 'All'
+
+jobs:
+  trigger_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🆔 Generate Run ID
+        id: generate_id
+        run: echo "run_id=run_$(date +%Y%m%d_%H%M%S)" >> $GITHUB_OUTPUT
+      
+      - name: 📤 Trigger Test Runner
+        run: |
+          echo "Triggering test runner with:"
+          echo "- Test Type: ${{ github.event.inputs.test_type }}"
+          echo "- Browser: ${{ github.event.inputs.browser }}"
+          echo "- Test Suite: ${{ github.event.inputs.test_suite }}"
+          echo "- Run ID: ${{ steps.generate_id.outputs.run_id }}"
+
+  run_tests:
+    needs: trigger_tests
+    uses: ./.github/workflows/test-runner.yml
+    with:
+      test_type: ${{ github.event.inputs.test_type }}
+      browser: ${{ github.event.inputs.browser }}
+      test_suite: ${{ github.event.inputs.test_suite }}
+      run_id: ${{ steps.generate_id.outputs.run_id }}
+    secrets: inherit
+
+  generate_report:
+    needs: run_tests
+    if: always()
+    uses: ./.github/workflows/report-generator.yml
+    with:
+      test_type: ${{ github.event.inputs.test_type }}
+      browser: ${{ github.event.inputs.browser }}
+      test_suite: ${{ github.event.inputs.test_suite }}
+      run_id: ${{ steps.generate_id.outputs.run_id }}
+    secrets: inherit
