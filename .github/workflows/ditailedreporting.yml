@@ -55,40 +55,20 @@ jobs:
           echo "Running ${{ inputs['test-category'] }} tests on ${{ inputs.browser }}..."
 
           # Map browser input → Playwright project
-          PROJECT=""
           case "${{ inputs.browser }}" in
-            chromium)
-              PROJECT="chrome"
-              ;;
-            firefox)
-              PROJECT="firefox"
-              ;;
-            webkit)
-              PROJECT="mobile-safari"
-              ;;
+            chromium) PROJECT="chrome" ;;
+            firefox)  PROJECT="firefox" ;;
+            webkit)   PROJECT="mobile-safari" ;;
           esac
 
           # Map category → real folder structure
-          TEST_PATH=""
           case "${{ inputs['test-category'] }}" in
-            mobile)
-              TEST_PATH="tests/mobile/"
-              ;;
-            security)
-              TEST_PATH="tests/security/"
-              ;;
-            web)
-              TEST_PATH="tests/web/"
-              ;;
-            smoke)
-              TEST_PATH="tests/web/Smoke/"
-              ;;
-            performance)
-              TEST_PATH="tests/performance/Web/"
-              ;;
-            all)
-              TEST_PATH="tests/"
-              ;;
+            mobile)       TEST_PATH="tests/mobile/" ;;
+            security)     TEST_PATH="tests/security/" ;;
+            web)          TEST_PATH="tests/web/" ;;
+            smoke)        TEST_PATH="tests/web/Smoke/" ;;
+            performance)  TEST_PATH="tests/performance/Web/" ;;
+            all)          TEST_PATH="tests/" ;;
           esac
 
           echo "Using project: $PROJECT"
@@ -96,32 +76,66 @@ jobs:
 
           npx playwright test "$TEST_PATH" \
             --project="$PROJECT" \
-            --reporter=html,line \
+            --reporter=line,html,json \
             --output=test-results/ \
+            --reporter=json=test-results/results.json \
             2>&1 | tee test-output.txt
 
           EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
 
-      - name: 📊 Show Test Results
+      - name: 📊 Show Test Metrics & Results
         if: always()
         run: |
-          echo "# 🎭 Test Results - ${{ inputs['test-category'] }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "# 🎭 Playwright Test Report" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -f "test-output.txt" ]; then
-            echo "## 📋 Test Summary" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            grep -E "passed|failed|skipped|tests" test-output.txt | tail -20 >> "$GITHUB_STEP_SUMMARY" || true
+          echo "**Category:** ${{ inputs['test-category'] }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Browser:** ${{ inputs.browser }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "## 📝 Full Output (last 100 lines)" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            tail -100 test-output.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "test-results/results.json" ]; then
+            node <<'EOF'
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('test-results/results.json', 'utf8'));
+
+            let total = 0, passed = 0, failed = 0, skipped = 0;
+
+            for (const suite of data.suites || []) {
+              for (const spec of suite.specs || []) {
+                for (const test of spec.tests || []) {
+                  total++;
+                  const status = test.results[0]?.status;
+                  if (status === 'passed') passed++;
+                  else if (status === 'failed') failed++;
+                  else if (status === 'skipped') skipped++;
+                }
+              }
+            }
+
+            const summary = `
+| Metric | Count |
+|-------|-------|
+| Total Tests | ${total} |
+| ✅ Passed | ${passed} |
+| ❌ Failed | ${failed} |
+| ⏭ Skipped | ${skipped} |
+`;
+
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+            EOF
           else
-            echo "No test output found." >> "$GITHUB_STEP_SUMMARY"
+            echo "⚠️ No JSON results found." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## 📝 Console Output (last 100 lines)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -100 test-output.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "📦 Download the **HTML report** from workflow artifacts." >> "$GITHUB_STEP_SUMMARY"
 
       - name: 📁 Upload Test Report
         if: always()
@@ -138,6 +152,6 @@ jobs:
         if: always()
         run: |
           if [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
-            echo "Some tests failed. Check the report above or download the HTML report."
+            echo "Some tests failed."
             exit 1
           fi
