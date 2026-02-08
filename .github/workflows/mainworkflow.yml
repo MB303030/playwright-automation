@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       test_type:
-        description: 'What type of tests to run?'
+        description: '🎯 What type of tests to run?'
         required: true
         type: choice
         options:
@@ -13,7 +13,7 @@ on:
         - Performance Tests
         - All Tests
       test_suite:
-        description: 'Which test suite?'
+        description: '📂 Which test suite?'
         required: false
         type: choice
         options:
@@ -24,7 +24,7 @@ on:
         - All
         default: 'All'
       browser:
-        description: 'Browser to use'
+        description: '🌐 Browser to use'
         required: true
         type: choice
         options:
@@ -33,7 +33,7 @@ on:
         - webkit
         default: 'chrome'
       environment:
-        description: 'Test environment'
+        description: '🏢 Test environment'
         required: false
         type: choice
         options:
@@ -43,11 +43,11 @@ on:
         - Custom
         default: 'Staging'
       custom_tags:
-        description: 'Custom tags (comma-separated, e.g., @smoke,@critical)'
+        description: '🏷️ Custom tags (comma-separated, e.g., @smoke,@critical)'
         required: false
         default: ''
       priority:
-        description: 'Test priority'
+        description: '🎯 Test priority'
         required: false
         type: choice
         options:
@@ -64,11 +64,11 @@ jobs:
       run_id: ${{ steps.generate_id.outputs.run_id }}
       test_path: ${{ steps.config.outputs.TEST_PATH }}
     steps:
-      - name: Generate Run ID
+      - name: 🆔 Generate Run ID
         id: generate_id
         run: echo "run_id=run_$(date +%Y%m%d_%H%M%S)" >> $GITHUB_OUTPUT
 
-      - name: Configure Test Path
+      - name: 🎯 Configure Test Path
         id: config
         run: |
           TEST_TYPE="${{ github.event.inputs.test_type }}"
@@ -91,10 +91,11 @@ jobs:
           fi
           
           echo "TEST_PATH=$TEST_PATH" >> $GITHUB_OUTPUT
+          echo "✅ Test path: $TEST_PATH"
 
   execute_tests:
     needs: validate_and_trigger
-    uses: ./.github/workflows/runner.yml
+    uses: ./.github/workflows/test_runner.yml
     with:
       test_type: ${{ github.event.inputs.test_type }}
       test_suite: ${{ github.event.inputs.test_suite }}
@@ -106,11 +107,14 @@ jobs:
       run_id: ${{ needs.validate_and_trigger.outputs.run_id }}
     secrets: inherit
 
-  # We will comment out the generate_reports job for now
-  # generate_reports:
-  #   needs: execute_tests
-  #   uses: ./.github/workflows/report_generator.yml
-  #   with:
-  #     run_id: ${{ needs.validate_and_trigger.outputs.run_id }}
-  #     test_results: ${{ needs.execute_tests.outputs.test_results }}
-  #   secrets: inherit
+  generate_reports:
+    needs: execute_tests
+    uses: ./.github/workflows/report_generator.yml
+    with:
+      test_type: ${{ github.event.inputs.test_type }}
+      test_suite: ${{ github.event.inputs.test_suite }}
+      browser: ${{ github.event.inputs.browser }}
+      environment: ${{ github.event.inputs.environment }}
+      priority: ${{ github.event.inputs.priority }}
+      run_id: ${{ needs.validate_and_trigger.outputs.run_id }}
+    secrets: inherit
