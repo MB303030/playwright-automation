@@ -1,0 +1,126 @@
+name: Professional Test Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'What type of tests to run?'
+        required: true
+        type: choice
+        options:
+        - Web Tests
+        - Mobile Tests
+        - Performance Tests
+        - All Tests
+      test_suite:
+        description: 'Which test suite?'
+        required: false
+        type: choice
+        options:
+        - Smoke
+        - Sanity
+        - Regression
+        - Negative
+        - All
+        default: 'All'
+      browser:
+        description: 'Browser to use'
+        required: true
+        type: choice
+        options:
+        - chrome
+        - firefox
+        - webkit
+        default: 'chrome'
+      environment:
+        description: 'Test environment'
+        required: false
+        type: choice
+        options:
+        - Development
+        - Staging
+        - Production
+        - Custom
+        default: 'Staging'
+      custom_tags:
+        description: 'Custom tags (comma-separated, e.g., @smoke,@critical)'
+        required: false
+        default: ''
+      priority:
+        description: 'Test priority'
+        required: false
+        type: choice
+        options:
+        - P0-Critical
+        - P1-High
+        - P2-Medium
+        - P3-Low
+        default: 'P1-High'
+
+jobs:
+  validate_and_trigger:
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.generate_id.outputs.run_id }}
+      test_path: ${{ steps.config.outputs.TEST_PATH }}
+    steps:
+      - name: Generate Run ID
+        id: generate_id
+        run: echo "run_id=run_$(date +%Y%m%d_%H%M%S)" >> $GITHUB_OUTPUT
+
+      - name: Configure Test Path
+        id: config
+        run: |
+          TEST_TYPE="${{ github.event.inputs.test_type }}"
+          TEST_SUITE="${{ github.event.inputs.test_suite }}"
+          
+          if [ "$TEST_TYPE" = "Web Tests" ]; then
+            BASE_PATH="./tests/web"
+          elif [ "$TEST_TYPE" = "Mobile Tests" ]; then
+            BASE_PATH="./tests/mobile"
+          elif [ "$TEST_TYPE" = "Performance Tests" ]; then
+            BASE_PATH="./tests/performance"
+          else
+            BASE_PATH="."
+          fi
+          
+          if [ "$TEST_SUITE" != "All" ] && [ "$TEST_TYPE" != "Performance Tests" ] && [ "$TEST_TYPE" != "All Tests" ]; then
+            TEST_PATH="$BASE_PATH/$TEST_SUITE"
+          else
+            TEST_PATH="$BASE_PATH"
+          fi
+          
+          echo "TEST_PATH=$TEST_PATH" >> $GITHUB_OUTPUT
+
+  execute_tests:
+    needs: validate_and_trigger
+    uses: ./.github/workflows/test_runner.yml
+    with:
+      test_type: ${{ github.event.inputs.test_type }}
+      test_suite: ${{ github.event.inputs.test_suite }}
+      browser: ${{ github.event.inputs.browser }}
+      environment: ${{ github.event.inputs.environment }}
+      custom_tags: ${{ github.event.inputs.custom_tags }}
+      priority: ${{ github.event.inputs.priority }}
+      test_path: ${{ needs.validate_and_trigger.outputs.test_path }}
+      run_id: ${{ needs.validate_and_trigger.outputs.run_id }}
+    secrets: inherit
+
+  generate_reports:
+    needs: execute_tests
+    uses: ./.github/workflows/report_generator.yml
+    with:
+      test_type: ${{ github.event.inputs.test_type }}
+      test_suite: ${{ github.event.inputs.test_suite }}
+      browser: ${{ github.event.inputs.browser }}
+      environment: ${{ github.event.inputs.environment }}
+      priority: ${{ github.event.inputs.priority }}
+      run_id: ${{ needs.validate_and_trigger.outputs.run_id }}
+      total_tests: ${{ needs.execute_tests.outputs.total_tests }}
+      passed_tests: ${{ needs.execute_tests.outputs.passed_tests }}
+      failed_tests: ${{ needs.execute_tests.outputs.failed_tests }}
+      skipped_tests: ${{ needs.execute_tests.outputs.skipped_tests }}
+      duration: ${{ needs.execute_tests.outputs.duration }}
+      success_rate: ${{ needs.execute_tests.outputs.success_rate }}
+      exit_code: ${{ needs.execute_tests.outputs.exit_code }}
+    secrets: inherit
