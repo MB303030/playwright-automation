@@ -94,7 +94,7 @@ jobs:
 
   execute_tests:
     needs: validate_and_trigger
-    uses: ./.github/workflows/test_runner.yml
+    uses: ./.github/workflows/runner.yml
     with:
       test_type: ${{ github.event.inputs.test_type }}
       test_suite: ${{ github.event.inputs.test_suite }}
