@@ -91,7 +91,6 @@ jobs:
           fi
           
           echo "TEST_PATH=$TEST_PATH" >> $GITHUB_OUTPUT
-          echo "✅ Test path: $TEST_PATH"
 
   execute_tests:
     needs: validate_and_trigger
