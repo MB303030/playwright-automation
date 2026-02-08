@@ -27,10 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: 📥 Download Playwright Report
+      - name: 📥 Download Playwright HTML Report
         uses: actions/download-artifact@v4
         with:
-          name: playwright-report-${{ inputs.run_id }}
+          name: playwright-html-report-${{ inputs.run_id }}
           path: ./downloaded-report
         continue-on-error: true
       
@@ -41,7 +41,7 @@ jobs:
           path: ./downloaded-results
         continue-on-error: true
       
-      - name: 📊 Create Simple GitHub Summary
+      - name: 📊 Create GitHub Summary
         run: |
           echo "## 🧪 Playwright Test Execution" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -50,43 +50,41 @@ jobs:
           echo "**Test Suite:** ${{ inputs.test_suite }}" >> $GITHUB_STEP_SUMMARY
           echo "**Browser:** ${{ inputs.browser }}" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Priority:** ${{ inputs.priority }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Check if report exists
           if [ -d "./downloaded-report" ]; then
             echo "✅ **Playwright HTML Report is available**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Download the **playwright-report-${{ inputs.run_id }}** artifact to view the full interactive report." >> $GITHUB_STEP_SUMMARY
+            echo "Download the **playwright-html-report-${{ inputs.run_id }}** artifact to view the full interactive report." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "To view the report:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Download the artifact" >> $GITHUB_STEP_SUMMARY
+            echo "2. Extract the files" >> $GITHUB_STEP_SUMMARY
+            echo "3. Open `index.html` in a web browser" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ **No Playwright report found**" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **No Playwright HTML report found**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "The test execution might have failed before generating a report." >> $GITHUB_STEP_SUMMARY
           fi
-          
-          # Check for JSON results
-          if [ -f "./downloaded-results/test-results.json" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "📊 **Test results available in JSON format**" >> $GITHUB_STEP_SUMMARY
-          fi
       
-      - name: 🔗 Generate Report Link
+      - name: 📋 Create Simple Summary
         run: |
-          echo "📋 Test Execution Summary:" | tee -a summary.txt
-          echo "Run ID: ${{ inputs.run_id }}" | tee -a summary.txt
-          echo "Test Type: ${{ inputs.test_type }}" | tee -a summary.txt
-          echo "Test Suite: ${{ inputs.test_suite }}" | tee -a summary.txt
-          echo "Browser: ${{ inputs.browser }}" | tee -a summary.txt
-          echo "Status: Completed" | tee -a summary.txt
-          echo "" | tee -a summary.txt
-          echo "To view the full Playwright HTML report:" | tee -a summary.txt
-          echo "1. Go to the 'Summary' tab" | tee -a summary.txt
-          echo "2. Download the 'playwright-report-${{ inputs.run_id }}' artifact" | tee -a summary.txt
-          echo "3. Extract and open index.html in a browser" | tee -a summary.txt
+          echo "Test Execution Summary" > summary.txt
+          echo "=====================" >> summary.txt
+          echo "" >> summary.txt
+          echo "Run ID: ${{ inputs.run_id }}" >> summary.txt
+          echo "Type: ${{ inputs.test_type }}" >> summary.txt
+          echo "Suite: ${{ inputs.test_suite }}" >> summary.txt
+          echo "Browser: ${{ inputs.browser }}" >> summary.txt
+          echo "Environment: ${{ inputs.environment }}" >> summary.txt
+          echo "" >> summary.txt
+          echo "Report: Download the 'playwright-html-report-${{ inputs.run_id }}' artifact" >> summary.txt
           
           mkdir -p ./reports/${{ inputs.run_id }}
           cp summary.txt ./reports/${{ inputs.run_id }}/
       
-      - name: 📤 Upload Simple Summary
+      - name: 📤 Upload Summary
         uses: actions/upload-artifact@v4
         with:
           name: report-summary-${{ inputs.run_id }}
