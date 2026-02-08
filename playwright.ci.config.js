@@ -1,28 +1,9 @@
 // @ts-check
 import { defineConfig, devices } from '@playwright/test';
+import { URLS } from './constants/urls.js';
 
-// Environment configuration
-const environments = {
-  development: {
-    baseURL: 'http://localhost:3000',
-    apiURL: 'http://localhost:8080/api',
-    timeout: 30000
-  },
-  staging: {
-    baseURL: 'https://staging.example.com',
-    apiURL: 'https://api.staging.example.com',
-    timeout: 45000
-  },
-  production: {
-    baseURL: 'https://example.com',
-    apiURL: 'https://api.example.com',
-    timeout: 60000
-  }
-};
-
-// Get current environment from env variable or default to development
-const ENV = process.env.ENVIRONMENT || 'development';
-const envConfig = environments[ENV];
+// Determine if we're in CI environment
+const isCI = !!process.env.CI;
 
 export default defineConfig({
   // 🎯 ROOT directory for ALL tests
@@ -30,9 +11,9 @@ export default defineConfig({
   
   // 📊 Test Execution Settings
   fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 1,
-  workers: process.env.CI ? 4 : undefined,
+  forbidOnly: isCI,
+  retries: isCI ? 2 : 0,
+  workers: isCI ? 2 : undefined,
   
   // 📈 Reporting
   reporter: [
@@ -49,21 +30,21 @@ export default defineConfig({
   use: {
     // Timeouts
     actionTimeout: 15000,
-    navigationTimeout: envConfig.timeout,
+    navigationTimeout: 30000,
     
-    // Base URL from environment
-    baseURL: envConfig.baseURL,
+    // Base URL from your constants file
+    baseURL: URLS.BASE,
     
     // Media capture
-    screenshot: process.env.CI ? 'only-on-failure' : 'on',
-    video: process.env.CI ? 'retain-on-failure' : 'off',
-    trace: process.env.CI ? 'retain-on-failure' : 'on-first-retry',
+    screenshot: isCI ? 'only-on-failure' : 'on',
+    video: isCI ? 'retain-on-failure' : 'off',
+    trace: isCI ? 'retain-on-failure' : 'on-first-retry',
     
-    // Browser settings
-    headless: process.env.CI ? true : false,
+    // Browser settings - ALWAYS headless in CI
+    headless: isCI ? true : false,
     ignoreHTTPSErrors: false,
     
-    // Viewport (can be overridden per project)
+    // Viewport
     viewport: { width: 1920, height: 1080 },
   },
 
@@ -87,20 +68,6 @@ export default defineConfig({
       grep: /@chrome|@desktop|@all-browsers/,
       grepInvert: /@mobile|@firefox-only|@safari-only/,
       timeout: 60000,
-    },
-
-    // ===== CHROME HEADLESS (Fast CI) =====
-    {
-      name: 'chrome-headless',
-      use: { 
-        ...devices['Desktop Chrome'],
-        launchOptions: {
-          args: ['--headless', '--disable-dev-shm-usage', '--no-sandbox']
-        }
-      },
-      grep: /@headless|@ci/,
-      timeout: 45000,
-      retries: 0,
     },
 
     // ===== FIREFOX =====
@@ -175,12 +142,4 @@ export default defineConfig({
   expect: {
     timeout: 10000,
   },
-  
-  // 🌐 Web Server (uncomment and adjust as needed)
-  // webServer: {
-  //   command: `npm run start:${ENV}`,
-  //   url: envConfig.baseURL,
-  //   reuseExistingServer: !process.env.CI,
-  //   timeout: 120 * 1000,
-  // },
 });
