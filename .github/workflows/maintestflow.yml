@@ -1,4 +1,4 @@
-name: Main
+name: Main Test Runner
 
 on:
   workflow_dispatch:
@@ -72,8 +72,8 @@ jobs:
         id: config
         run: |
           # Determine test path
-          TEST_TYPE="${{ inputs.test_type }}"
-          TEST_SUITE="${{ inputs.test_suite }}"
+          TEST_TYPE="${{ github.event.inputs.test_type }}"
+          TEST_SUITE="${{ github.event.inputs.test_suite }}"
           
           if [ "$TEST_TYPE" = "Web Tests" ]; then
             BASE_PATH="./tests/web"
@@ -92,9 +92,11 @@ jobs:
           fi
           
           echo "TEST_PATH=$TEST_PATH" >> $GITHUB_OUTPUT
+          echo "✅ Test path configured: $TEST_PATH"
 
   execute-tests:
     needs: validate-and-trigger
+    # FIXED: Use the relative path from root
     uses: ./.github/workflows/test-runner.yml
     with:
       test_type: ${{ github.event.inputs.test_type }}
@@ -109,6 +111,7 @@ jobs:
 
   generate-reports:
     needs: execute-tests
+    # FIXED: Use the relative path from root
     uses: ./.github/workflows/report-generator.yml
     with:
       test_type: ${{ github.event.inputs.test_type }}
