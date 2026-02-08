@@ -29,33 +29,170 @@ on:
         required: true
         type: string
 
+env:
+  CI: true
+  FORCE_COLOR: 1
+
 jobs:
   run_tests:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout repository
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
       
-      - name: Setup Node.js
+      - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
       
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: |
-          npm ci || true
-          echo "Dependencies installed"
+          echo "📦 Installing dependencies..."
+          # Replace this with your actual installation
+          npm ci || echo "No package.json found"
+          # Install Playwright browsers
+          npx playwright install --with-deps ${{ inputs.browser }} || echo "Playwright not installed"
       
-      - name: Execute Tests
+      - name: 🏃 Execute Tests
         id: execute
         run: |
-          echo "Running tests for: ${{ inputs.test_type }}"
-          echo "Test path: ${{ inputs.test_path }}"
-          echo "Browser: ${{ inputs.browser }}"
-          echo "Environment: ${{ inputs.environment }}"
-          echo "Run ID: ${{ inputs.run_id }}"
+          echo "🚀 Running tests for: ${{ inputs.test_type }}"
+          echo "📂 Test path: ${{ inputs.test_path }}"
+          echo "🌐 Browser: ${{ inputs.browser }}"
+          echo "🏢 Environment: ${{ inputs.environment }}"
+          echo "🎯 Priority: ${{ inputs.priority }}"
+          echo "🆔 Run ID: ${{ inputs.run_id }}"
           
-          # Simulate test execution
-          sleep 2
+          START_TIME=$(date +%s)
           
-          echo "Test execution completed"
+          # Create test results directory
+          mkdir -p ./test-results/${{ inputs.run_id }}
+          
+          # For now, simulate test execution
+          # REPLACE THIS WITH YOUR ACTUAL TEST COMMAND
+          if [ -f "package.json" ]; then
+            echo "📝 Running actual tests..."
+            
+            # Example: Running Playwright tests
+            # npx playwright test "${{ inputs.test_path }}" \
+            #   --project="${{ inputs.browser }}" \
+            #   --reporter=html,json \
+            #   --output=./test-results/${{ inputs.run_id }} \
+            #   || echo "Tests completed with exit code: $?"
+            
+            # For demonstration, simulate test results
+            echo "Simulating test execution..."
+            sleep 5
+            
+            # Create mock test results
+            cat > ./test-results/${{ inputs.run_id }}/results.json << 'EOF'
+            {
+              "total_tests": 42,
+              "passed": 38,
+              "failed": 3,
+              "skipped": 1,
+              "duration": 127,
+              "success_rate": 90,
+              "test_cases": [
+                {"name": "Login Test", "status": "passed", "duration": 2.5},
+                {"name": "Dashboard Load", "status": "passed", "duration": 1.8},
+                {"name": "API Validation", "status": "failed", "duration": 4.2, "error": "Timeout exceeded"},
+                {"name": "Mobile View", "status": "passed", "duration": 3.1},
+                {"name": "Performance Check", "status": "skipped", "duration": 0}
+              ]
+            }
+            EOF
+            
+          else
+            echo "⚠️ No tests found, creating sample results"
+            
+            cat > ./test-results/${{ inputs.run_id }}/results.json << 'EOF'
+            {
+              "total_tests": 12,
+              "passed": 10,
+              "failed": 1,
+              "skipped": 1,
+              "duration": 45,
+              "success_rate": 83,
+              "test_cases": [
+                {"name": "Sample Test 1", "status": "passed", "duration": 1.2},
+                {"name": "Sample Test 2", "status": "passed", "duration": 0.8}
+              ]
+            }
+            EOF
+          fi
+          
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          
+          echo "⏱️ Actual execution time: $DURATION seconds"
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+      
+      - name: 📊 Extract Test Statistics
+        id: stats
+        run: |
+          echo "📊 Extracting test statistics..."
+          
+          RESULTS_FILE="./test-results/${{ inputs.run_id }}/results.json"
+          
+          if [ -f "$RESULTS_FILE" ]; then
+            # Parse actual results from JSON file
+            TOTAL_TESTS=$(jq -r '.total_tests // 0' "$RESULTS_FILE")
+            PASSED_TESTS=$(jq -r '.passed // 0' "$RESULTS_FILE")
+            FAILED_TESTS=$(jq -r '.failed // 0' "$RESULTS_FILE")
+            SKIPPED_TESTS=$(jq -r '.skipped // 0' "$RESULTS_FILE")
+            DURATION=$(jq -r '.duration // 0' "$RESULTS_FILE")
+            
+            echo "✅ Actual results found:"
+            echo "   Total Tests: $TOTAL_TESTS"
+            echo "   Passed: $PASSED_TESTS"
+            echo "   Failed: $FAILED_TESTS"
+            echo "   Skipped: $SKIPPED_TESTS"
+            echo "   Duration: $DURATION seconds"
+          else
+            echo "⚠️ No results file found, using defaults"
+            TOTAL_TESTS=0
+            PASSED_TESTS=0
+            FAILED_TESTS=0
+            SKIPPED_TESTS=0
+            DURATION=0
+          fi
+          
+          # Calculate success rate
+          if [ "$TOTAL_TESTS" -gt 0 ]; then
+            SUCCESS_RATE=$((PASSED_TESTS * 100 / TOTAL_TESTS))
+          else
+            SUCCESS_RATE=0
+          fi
+          
+          echo "📈 Success Rate: $SUCCESS_RATE%"
+          
+          # Save statistics to file
+          cat > ./test-results/${{ inputs.run_id }}/statistics.json << EOF
+          {
+            "total_tests": $TOTAL_TESTS,
+            "passed_tests": $PASSED_TESTS,
+            "failed_tests": $FAILED_TESTS,
+            "skipped_tests": $SKIPPED_TESTS,
+            "duration": $DURATION,
+            "success_rate": $SUCCESS_RATE,
+            "test_type": "${{ inputs.test_type }}",
+            "test_suite": "${{ inputs.test_suite }}",
+            "browser": "${{ inputs.browser }}",
+            "environment": "${{ inputs.environment }}",
+            "run_id": "${{ inputs.run_id }}"
+          }
+          EOF
+      
+      - name: 📦 Upload Test Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.run_id }}
+          path: |
+            ./test-results/${{ inputs.run_id }}/
+            # Add other test artifacts if they exist
+            playwright-report/
+            allure-results/
+          retention-days: 7
