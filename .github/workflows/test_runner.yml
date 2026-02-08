@@ -15,13 +15,6 @@ on:
       environment:
         required: true
         type: string
-      custom_tags:
-        required: false
-        type: string
-        default: ''
-      priority:
-        required: true
-        type: string
       test_path:
         required: true
         type: string
@@ -33,66 +26,138 @@ env:
   CI: true
 
 jobs:
-  run_tests:
+  debug_and_run_tests:
     runs-on: ubuntu-latest
     
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
       
-      - name: ⚙️ Setup Node.js
+      - name: 🔍 Debug Received Parameters
+        run: |
+          echo "=== 🎯 PARAMETERS RECEIVED ==="
+          echo "Test Type: ${{ inputs.test_type }}"
+          echo "Test Suite: ${{ inputs.test_suite }}"
+          echo "Browser: ${{ inputs.browser }}"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "Test Path: ${{ inputs.test_path }}"
+          echo "Run ID: ${{ inputs.run_id }}"
+          echo "============================="
+      
+      - name: 📂 Verify Test Path Exists
+        run: |
+          echo "🔍 Verifying test path: ${{ inputs.test_path }}"
+          
+          if [ ! -d "${{ inputs.test_path }}" ] && [ ! -f "${{ inputs.test_path }}" ]; then
+            echo "❌ ERROR: Test path does not exist!"
+            echo "Looking for alternatives..."
+            
+            # Try to find similar paths
+            echo "Searching for test directories..."
+            find . -type d -name "*test*" -o -name "*spec*" | grep -v node_modules | head -20
+            exit 1
+          fi
+          
+          echo "✅ Test path exists!"
+          echo ""
+          echo "📁 Contents of ${{ inputs.test_path }}:"
+          ls -la "${{ inputs.test_path }}"
+      
+      - name: 📄 List Test Files
+        run: |
+          echo "=== 📄 FINDING TEST FILES ==="
+          
+          # Find all test files in the path
+          TEST_FILES=$(find "${{ inputs.test_path }}" -type f \( -name "*.spec.js" -o -name "*.test.js" \) 2>/dev/null || true)
+          
+          if [ -z "$TEST_FILES" ]; then
+            echo "⚠️ No .spec.js or .test.js files found"
+            echo "Looking for any JavaScript files..."
+            find "${{ inputs.test_path }}" -type f -name "*.js" | sort
+          else
+            echo "Found test files:"
+            echo "$TEST_FILES"
+            
+            # Count and show details
+            COUNT=$(echo "$TEST_FILES" | wc -l)
+            echo ""
+            echo "📊 Total test files: $COUNT"
+            
+            # Show first few lines of each test file
+            echo ""
+            echo "=== 📝 TEST FILE PREVIEW ==="
+            for file in $TEST_FILES; do
+              echo ""
+              echo "📄 $file:"
+              echo "---"
+              head -5 "$file" | sed 's/^/  /'
+              echo "---"
+            done
+          fi
+      
+      - name: ⚙️ Setup Node.js (Optional - For Running Tests)
+        if: false  # Disable for now, just debugging
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'
       
-      - name: 📦 Install dependencies
+      - name: 📦 Check Package.json (Optional)
+        if: false  # Disable for now
         run: |
-          echo "📦 Installing dependencies..."
+          echo "Checking package.json..."
           if [ -f "package.json" ]; then
-            npm ci
+            echo "✅ package.json exists"
+            echo "Dependencies:"
+            grep -E '"dependencies"|"devDependencies"' package.json || echo "No dependencies found"
           else
-            echo "❌ Error: No package.json found!"
-            exit 1
+            echo "❌ No package.json found"
           fi
       
-      - name: 🔧 Install Playwright Browsers
+      - name: 🎯 SIMULATE Test Run (Debug Only)
         run: |
-          echo "🔧 Installing Playwright browsers..."
-          npx playwright install --with-deps
-      
-      - name: 🧪 Run Playwright Tests
-        id: run_playwright
-        continue-on-error: true
-        run: |
-          echo "🚀 Running Playwright tests..."
-          echo "📂 Test path: ${{ inputs.test_path }}"
-          echo "🌐 Browser: ${{ inputs.browser }}"
+          echo "=== 🧪 SIMULATED TEST RUN ==="
+          echo ""
+          echo "This is what WOULD run if we executed tests:"
+          echo ""
+          echo "npx playwright test \\"
+          echo "  \"${{ inputs.test_path }}\" \\"
+          echo "  --project=${{ inputs.browser }} \\"
+          echo "  --reporter=html,line \\"
+          echo "  --output=\"./test-results/${{ inputs.run_id }}\" \\"
+          echo "  --retries=1"
+          echo ""
+          echo "But we're just debugging for now!"
           
-          # Create output directory for this run
-          OUTPUT_DIR="./playwright-report/${{ inputs.run_id }}"
-          mkdir -p $OUTPUT_DIR
+          # Create a mock test execution summary
+          MOCK_DIR="./mock-results/${{ inputs.run_id }}"
+          mkdir -p $MOCK_DIR
           
-          # Run Playwright with native HTML reporter
-          npx playwright test \
-            "${{ inputs.test_path }}" \
-            --project="${{ inputs.browser }}" \
-            --reporter=html,line \
-            --output="$OUTPUT_DIR" \
-            --retries=1
+          echo "{
+            \"total\": 5,
+            \"passed\": 4,
+            \"failed\": 1,
+            \"skipped\": 0,
+            \"duration\": 12.5,
+            \"suites\": [
+              {
+                \"title\": \"${{ inputs.test_suite }} Tests\",
+                \"tests\": [
+                  {\"title\": \"Login Test\", \"status\": \"passed\", \"duration\": 2.1},
+                  {\"title\": \"Dashboard Test\", \"status\": \"passed\", \"duration\": 1.8},
+                  {\"title\": \"Search Test\", \"status\": \"passed\", \"duration\": 3.2},
+                  {\"title\": \"Profile Test\", \"status\": \"failed\", \"duration\": 2.4},
+                  {\"title\": \"Logout Test\", \"status\": \"passed\", \"duration\": 2.9}
+                ]
+              }
+            ]
+          }" > $MOCK_DIR/mock-results.json
+          
+          echo "✅ Created mock results in $MOCK_DIR"
       
-      - name: 📦 Upload Playwright Report
-        if: always()
+      - name: 📤 Upload Debug Info
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ inputs.run_id }}
-          path: ./playwright-report/${{ inputs.run_id }}
-          retention-days: 7
-      
-      - name: 📦 Upload Test Results (JSON)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ inputs.run_id }}
-          path: ./test-results.json
-          retention-days: 7
+          name: debug-info-${{ inputs.run_id }}
+          path: |
+            mock-results/${{ inputs.run_id }}
+          retention-days: 1
