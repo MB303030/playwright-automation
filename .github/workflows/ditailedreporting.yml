@@ -51,76 +51,195 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-
-          echo "Running ${{ inputs['test-category'] }} tests on ${{ inputs.browser }}..."
-
+          
+          echo "=========================================="
+          echo "🚀 RUNNING PLAYWRIGHT TESTS"
+          echo "=========================================="
+          echo "Category: ${{ inputs['test-category'] }}"
+          echo "Browser: ${{ inputs.browser }}"
+          echo "=========================================="
+          
           # Map browser input → Playwright project
           PROJECT=""
           case "${{ inputs.browser }}" in
             chromium)
               PROJECT="chrome"
+              echo "Using project: chrome (Desktop Chrome)"
               ;;
             firefox)
               PROJECT="firefox"
+              echo "Using project: firefox (Desktop Firefox)"
               ;;
             webkit)
               PROJECT="mobile-safari"
+              echo "Using project: mobile-safari (iPhone 12)"
               ;;
           esac
-
-          # Map category → real folder structure
+          
+          # FIXED: Correct paths based on your folder structure
           TEST_PATH=""
           case "${{ inputs['test-category'] }}" in
             mobile)
+              # Mobile performance tests are inside mobile/performance/Web/
               TEST_PATH="tests/mobile/"
+              echo "Test path: tests/mobile/"
+              echo "This includes:"
+              echo "  - tests/mobile/performance/Web/"
+              echo "  - tests/mobile/*.spec.js"
               ;;
             security)
               TEST_PATH="tests/security/"
+              echo "Test path: tests/security/"
               ;;
             web)
               TEST_PATH="tests/web/"
+              echo "Test path: tests/web/"
+              echo "This includes:"
+              echo "  - tests/web/Negative/"
+              echo "  - tests/web/Regression/"
+              echo "  - tests/web/Sanity/"
+              echo "  - tests/web/*.spec.js"
               ;;
             smoke)
-              TEST_PATH="tests/web/Smoke/"
+              # Check both possible locations for Smoke tests
+              if [ -d "tests/web/Smoke/" ]; then
+                TEST_PATH="tests/web/Smoke/"
+                echo "Test path: tests/web/Smoke/"
+              elif [ -d "tests/Smoke/" ]; then
+                TEST_PATH="tests/Smoke/"
+                echo "Test path: tests/Smoke/"
+              else
+                echo "ERROR: Smoke tests folder not found!"
+                echo "Looking for: tests/web/Smoke/ or tests/Smoke/"
+                exit 1
+              fi
               ;;
             performance)
-              TEST_PATH="tests/performance/Web/"
+              # Performance tests are inside mobile/performance/Web/
+              TEST_PATH="tests/mobile/performance/Web/"
+              echo "Test path: tests/mobile/performance/Web/"
               ;;
             all)
               TEST_PATH="tests/"
+              echo "Test path: tests/ (ALL TESTS)"
               ;;
           esac
-
-          echo "Using project: $PROJECT"
-          echo "Using test path: $TEST_PATH"
-
+          
+          echo "=========================================="
+          echo "📋 CHECKING FOR TEST FILES..."
+          echo "=========================================="
+          
+          # Debug: List files in the test path
+          echo "Listing files in $TEST_PATH:"
+          if [ -d "$TEST_PATH" ]; then
+            find "$TEST_PATH" -type f -name "*.spec.js" -o -name "*.spec.ts" | head -20
+            FILE_COUNT=$(find "$TEST_PATH" -type f -name "*.spec.js" -o -name "*.spec.ts" | wc -l)
+            echo "Found $FILE_COUNT test files"
+          else
+            echo "ERROR: Directory $TEST_PATH does not exist!"
+            echo "Current working directory: $(pwd)"
+            echo "Directory contents of tests/:"
+            ls -la tests/ || echo "No tests/ directory found"
+            exit 1
+          fi
+          
+          echo "=========================================="
+          echo "🔧 EXECUTING TESTS..."
+          echo "=========================================="
+          
+          # Run the tests with debug output
+          echo "Command: npx playwright test \"$TEST_PATH\" --project=\"$PROJECT\" --reporter=html,line --output=test-results/"
+          
           npx playwright test "$TEST_PATH" \
             --project="$PROJECT" \
             --reporter=html,line \
             --output=test-results/ \
             2>&1 | tee test-output.txt
-
+          
           EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          
+          echo "=========================================="
+          echo "📊 TEST EXECUTION COMPLETE - Exit Code: $EXIT_CODE"
+          echo "=========================================="
 
       - name: 📊 Show Test Results
         if: always()
         run: |
           echo "# 🎭 Test Results - ${{ inputs['test-category'] }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-
+          echo "**Browser:** ${{ inputs.browser }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          
           if [ -f "test-output.txt" ]; then
             echo "## 📋 Test Summary" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            grep -E "passed|failed|skipped|tests" test-output.txt | tail -20 >> "$GITHUB_STEP_SUMMARY" || true
-
+            
+            # Show the full output but clean it up
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            
+            # Try to extract meaningful output
+            if grep -q "No tests found" test-output.txt; then
+              echo "❌ NO TESTS FOUND!" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "This usually means:" >> "$GITHUB_STEP_SUMMARY"
+              echo "1. The test path is incorrect" >> "$GITHUB_STEP_SUMMARY"
+              echo "2. Test files don't have .spec.js or .spec.ts extension" >> "$GITHUB_STEP_SUMMARY"
+              echo "3. Playwright can't find the test files" >> "$GITHUB_STEP_SUMMARY"
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            
+            # Show the last 50 lines of output
+            tail -50 test-output.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            
+            # Show file structure for debugging
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "## 📝 Full Output (last 100 lines)" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            tail -100 test-output.txt >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "## 🔍 DEBUG INFO" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            
+            TEST_PATH=""
+            case "${{ inputs['test-category'] }}" in
+              mobile)
+                TEST_PATH="tests/mobile/"
+                ;;
+              security)
+                TEST_PATH="tests/security/"
+                ;;
+              web)
+                TEST_PATH="tests/web/"
+                ;;
+              smoke)
+                if [ -d "tests/web/Smoke/" ]; then
+                  TEST_PATH="tests/web/Smoke/"
+                elif [ -d "tests/Smoke/" ]; then
+                  TEST_PATH="tests/Smoke/"
+                fi
+                ;;
+              performance)
+                TEST_PATH="tests/mobile/performance/Web/"
+                ;;
+              all)
+                TEST_PATH="tests/"
+                ;;
+            esac
+            
+            echo "**Looking for tests in:** \`$TEST_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            
+            if [ -d "$TEST_PATH" ]; then
+              echo "**Files found:**" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              find "$TEST_PATH" -type f -name "*.js" -o -name "*.ts" | head -30 >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "❌ **Directory not found:** \`$TEST_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            
           else
-            echo "No test output found." >> "$GITHUB_STEP_SUMMARY"
+            echo "## ❌ NO TEST OUTPUT FOUND" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "The test output file was not generated." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: 📁 Upload Test Report
@@ -138,6 +257,17 @@ jobs:
         if: always()
         run: |
           if [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
-            echo "Some tests failed. Check the report above or download the HTML report."
+            echo ""
+            echo "=========================================="
+            echo "❌ TESTS FAILED OR NO TESTS FOUND"
+            echo "=========================================="
+            echo ""
+            echo "Possible issues:"
+            echo "1. Test path might be incorrect"
+            echo "2. No test files found in the directory"
+            echo "3. Playwright configuration issue"
+            echo ""
+            echo "Check the debug info in the report above."
+            echo ""
             exit 1
           fi
