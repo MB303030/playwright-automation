@@ -1,4 +1,4 @@
-name: Professional Tag
+name: gpt
 
 on:
   workflow_dispatch:
