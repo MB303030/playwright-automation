@@ -1,0 +1,211 @@
+name: gpt
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: '🎯 What type of tests to run?'
+        required: true
+        type: choice
+        options:
+        - Web Tests
+        - Mobile Tests
+        - Performance Tests
+        - All Tests
+      test_suite:
+        description: '📂 Which test suite?'
+        required: false
+        type: choice
+        options:
+        - Smoke
+        - Sanity
+        - Regression
+        - Negative
+        - All
+        default: 'All'
+      browser:
+        description: '🌐 Browser to use'
+        required: true
+        type: choice
+        options:
+        - chrome
+        - firefox
+        - webkit
+        default: 'chrome'
+      environment:
+        description: '🏢 Test environment'
+        required: false
+        type: choice
+        options:
+        - Development
+        - Staging
+        - Production
+        - Custom
+        default: 'Staging'
+      custom_tags:
+        description: '🏷️ Custom tags (comma-separated, e.g., @smoke,@critical)'
+        required: false
+        default: ''
+      priority:
+        description: '🎯 Test priority'
+        required: false
+        type: choice
+        options:
+        - P0-Critical
+        - P1-High
+        - P2-Medium
+        - P3-Low
+        default: 'P1-High'
+
+env:
+  CI: true
+  FORCE_COLOR: 1
+
+jobs:
+  run-professional-tests:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    name: 🧪 ${{ github.event.inputs.test_type }} (${{ github.event.inputs.browser }})
+
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: ⚙️ Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: 📦 Install dependencies
+      run: |
+        npm ci
+        npx playwright install --with-deps ${{ github.event.inputs.browser }}
+
+    - name: 🎯 Configure Test Run
+      id: config
+      run: |
+        TEST_TYPE="${{ github.event.inputs.test_type }}"
+        TEST_SUITE="${{ github.event.inputs.test_suite }}"
+        BROWSER="${{ github.event.inputs.browser }}"
+        ENV="${{ github.event.inputs.environment }}"
+        TAGS="${{ github.event.inputs.custom_tags }}"
+        PRIORITY="${{ github.event.inputs.priority }}"
+
+        if [ "$TEST_TYPE" = "Web Tests" ]; then
+          BASE_PATH="./tests/web"
+        elif [ "$TEST_TYPE" = "Mobile Tests" ]; then
+          BASE_PATH="./tests/mobile"
+        elif [ "$TEST_TYPE" = "Performance Tests" ]; then
+          BASE_PATH="./tests/performance"
+        else
+          BASE_PATH="."
+        fi
+
+        if [ "$TEST_SUITE" != "All" ] && [ "$TEST_TYPE" != "Performance Tests" ]; then
+          TEST_PATH="$BASE_PATH/$TEST_SUITE"
+        else
+          TEST_PATH="$BASE_PATH"
+        fi
+
+        RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
+        REPORT_NAME="${TEST_TYPE// /_}_${TEST_SUITE}_${BROWSER}_${ENV}_${PRIORITY}_${RUN_ID}"
+
+        echo "TEST_PATH=$TEST_PATH" >> $GITHUB_OUTPUT
+        echo "REPORT_NAME=$REPORT_NAME" >> $GITHUB_OUTPUT
+        echo "RUN_ID=$RUN_ID" >> $GITHUB_OUTPUT
+
+        echo "✅ Configuration Complete"
+        echo "   Path: $TEST_PATH"
+        echo "   Report: $REPORT_NAME"
+        echo "   Browser: $BROWSER"
+        echo "   Environment: $ENV"
+        echo "   Priority: $PRIORITY"
+        echo "   Tags: $TAGS"
+
+    - name: 🏃 Execute Tests
+      id: execute-tests
+      run: |
+        CMD="npx playwright test \"${{ steps.config.outputs.TEST_PATH }}\""
+        CMD="$CMD --project=${{ github.event.inputs.browser }}"
+        CMD="$CMD --reporter=html,allure-playwright,json"
+        CMD="$CMD --retries=2"
+        CMD="$CMD --timeout=90000"
+        CMD="$CMD --trace=on"
+        CMD="$CMD --video=on"
+        CMD="$CMD --screenshot=on"
+
+        if [ -n "${{ github.event.inputs.custom_tags }}" ]; then
+          TAGS=$(echo "${{ github.event.inputs.custom_tags }}" | tr ',' '|')
+          CMD="$CMD --grep=\"($TAGS)\""
+        fi
+
+        if [ "${{ github.event.inputs.test_type }}" = "Performance Tests" ]; then
+          CMD="$CMD --workers=1"
+        elif [ "${{ github.event.inputs.test_type }}" = "Mobile Tests" ]; then
+          CMD="$CMD --workers=2"
+        else
+          CMD="$CMD --workers=4"
+        fi
+
+        echo "🚀 Running: $CMD"
+        start_time=$(date +%s)
+        eval $CMD
+        EXIT_CODE=$?
+        end_time=$(date +%s)
+        duration=$((end_time - start_time))
+
+        echo "EXIT_CODE=$EXIT_CODE" >> $GITHUB_OUTPUT
+        echo "DURATION=$duration" >> $GITHUB_OUTPUT
+        echo "⏱️ Execution time: $duration seconds"
+
+        exit $EXIT_CODE
+
+    # ... All report generation steps remain exactly as you have them ...
+
+    - name: 🎨 Post Results Comment
+      if: github.event_name != 'workflow_dispatch' || github.event.inputs.issue_number
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issue_number = parseInt(process.env.ISSUE_NUMBER || context.issue.number || '0');
+          if(issue_number > 0){
+            const summary = `
+            ## 🧪 Test Execution Complete!
+
+            ### 📋 Configuration
+            | Parameter | Value |
+            |-----------|-------|
+            | Test Type | ${{ github.event.inputs.test_type }} |
+            | Test Suite | ${{ github.event.inputs.test_suite }} |
+            | Browser | ${{ github.event.inputs.browser }} |
+            | Environment | ${{ github.event.inputs.environment }} |
+            | Priority | ${{ github.event.inputs.priority }} |
+
+            ### ⏱️ Execution
+            - **Duration:** ${{ steps.execute-tests.outputs.DURATION }} seconds
+            - **Run ID:** ${{ steps.config.outputs.RUN_ID }}
+            - **Triggered By:** ${{ github.actor }}
+
+            ### 📊 Reports Available
+            1. **Professional Dashboard** - Interactive dashboard with charts
+            2. **Playwright HTML Report** - With videos and traces
+            3. **Allure Report** - Detailed analytics
+
+            📥 **Download from Artifacts:** \`professional-report-${{ steps.config.outputs.REPORT_NAME }}\`
+
+            ---
+            *Generated by Professional Test Runner*
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+          } else {
+            console.log("No valid issue/PR number. Skipping comment.");
+          }
