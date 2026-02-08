@@ -1,0 +1,143 @@
+name: GPT Category
+
+on:
+  workflow_dispatch:
+    inputs:
+      test-category:
+        description: 'Which tests to run?'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - mobile
+          - security
+          - web
+          - smoke
+          - performance
+      browser:
+        description: 'Browser to use'
+        required: false
+        default: 'chromium'
+        type: choice
+        options:
+          - chromium
+          - firefox
+          - webkit
+
+jobs:
+  playwright-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🎭 Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: 🧪 Run Tests
+        id: run-tests
+        continue-on-error: true
+        run: |
+          set +e
+
+          echo "Running ${{ inputs['test-category'] }} tests on ${{ inputs.browser }}..."
+
+          # Map browser input → Playwright project
+          PROJECT=""
+          case "${{ inputs.browser }}" in
+            chromium)
+              PROJECT="chrome"
+              ;;
+            firefox)
+              PROJECT="firefox"
+              ;;
+            webkit)
+              PROJECT="mobile-safari"
+              ;;
+          esac
+
+          # Map category → real folder structure
+          TEST_PATH=""
+          case "${{ inputs['test-category'] }}" in
+            mobile)
+              TEST_PATH="tests/mobile/"
+              ;;
+            security)
+              TEST_PATH="tests/security/"
+              ;;
+            web)
+              TEST_PATH="tests/web/"
+              ;;
+            smoke)
+              TEST_PATH="tests/web/Smoke/"
+              ;;
+            performance)
+              TEST_PATH="tests/performance/Web/"
+              ;;
+            all)
+              TEST_PATH="tests/"
+              ;;
+          esac
+
+          echo "Using project: $PROJECT"
+          echo "Using test path: $TEST_PATH"
+
+          npx playwright test "$TEST_PATH" \
+            --project="$PROJECT" \
+            --reporter=html,line \
+            --output=test-results/ \
+            2>&1 | tee test-output.txt
+
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: 📊 Show Test Results
+        if: always()
+        run: |
+          echo "# 🎭 Test Results - ${{ inputs['test-category'] }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f "test-output.txt" ]; then
+            echo "## 📋 Test Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            grep -E "passed|failed|skipped|tests" test-output.txt | tail -20 >> "$GITHUB_STEP_SUMMARY" || true
+
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "## 📝 Full Output (last 100 lines)" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -100 test-output.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No test output found." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 📁 Upload Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ inputs['test-category'] }}-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-output.txt
+            test-results/
+          retention-days: 7
+
+      - name: 🚨 Fail if Tests Failed
+        if: always()
+        run: |
+          if [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
+            echo "Some tests failed. Check the report above or download the HTML report."
+            exit 1
+          fi
