@@ -29,128 +29,125 @@ jobs:
   playwright-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    
+
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
 
-    - name: ⚙️ Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
-    - name: 📦 Install dependencies
-      run: npm ci
+      - name: 📦 Install dependencies
+        run: npm ci
 
-    - name: 🎭 Install Playwright browsers
-      run: npx playwright install ${{ inputs.browser }} --with-deps
+      - name: 🎭 Install Playwright browsers
+        run: npx playwright install ${{ inputs.browser }} --with-deps
 
-    - name: 🧪 Run Tests
-      id: run-tests
-      continue-on-error: true
-      run: |
-        echo "Running ${{ inputs.test-category }} tests on ${{ inputs.browser }}..."
-        
-        # Determine which tests to run based on category
-        TEST_PATH=""
-        case "${{ inputs.test-category }}" in
-          "mobile")
-            TEST_PATH="tests/mobile/"
-            ;;
-          "security")
-            TEST_PATH="tests/security/"
-            ;;
-          "web")
-            TEST_PATH="tests/web/"
-            ;;
-          "smoke")
-            TEST_PATH="tests/Smoke/"
-            ;;
-          "performance")
-            TEST_PATH="tests/mobile/performance/"
-            ;;
-          "all")
-            TEST_PATH="tests/"
-            ;;
-        esac
-        
-        # Run the tests
-        npx playwright test $TEST_PATH \
-          --project=${{ inputs.browser }} \
-          --reporter=html,line \
-          --output=test-results/ \
-          2>&1 | tee test-output.txt
-        
-        # Capture exit code
-        echo "exit_code=$?" >> $GITHUB_OUTPUT
+      - name: 🧪 Run Tests
+        id: run-tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
 
-    - name: 📊 Show Test Results
-      if: always()
-      run: |
-        echo "# 🎭 Test Results - ${{ inputs.test-category | title }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        # Check test output
-        if [ -f "test-output.txt" ]; then
-          # Extract summary from the output
-          echo "## 📋 Test Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Get the last lines containing the summary
-          tail -20 test-output.txt | grep -A 5 -B 5 "tests\|passed\|failed\|skipped" >> $GITHUB_STEP_SUMMARY || true
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 📝 Full Output" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          cat test-output.txt | tail -100 >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-        else
-          echo "No test output found." >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        # List which tests were run
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## 📁 Tests Executed" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        case "${{ inputs.test-category }}" in
-          "mobile")
-            echo "Running mobile performance tests:" >> $GITHUB_STEP_SUMMARY
-            find tests/mobile/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> $GITHUB_STEP_SUMMARY || true
-            ;;
-          "security")
-            echo "Running security tests:" >> $GITHUB_STEP_SUMMARY
-            find tests/security/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> $GITHUB_STEP_SUMMARY || true
-            ;;
-          "web")
-            echo "Running web tests:" >> $GITHUB_STEP_SUMMARY
-            find tests/web/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> $GITHUB_STEP_SUMMARY || true
-            ;;
-          "smoke")
-            echo "Running smoke tests:" >> $GITHUB_STEP_SUMMARY
-            find tests/Smoke/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> $GITHUB_STEP_SUMMARY || true
-            ;;
-          "all")
-            echo "Running ALL tests:" >> $GITHUB_STEP_SUMMARY
-            find tests/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> $GITHUB_STEP_SUMMARY || true
-            ;;
-        esac
+          echo "Running ${{ inputs['test-category'] }} tests on ${{ inputs.browser }}..."
 
-    - name: 📁 Upload Test Report
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: playwright-report-${{ inputs.test-category }}-${{ github.run_id }}
-        path: |
-          playwright-report/
-          test-output.txt
-          test-results/
-        retention-days: 7
+          TEST_PATH=""
+          case "${{ inputs['test-category'] }}" in
+            mobile)
+              TEST_PATH="tests/mobile/"
+              ;;
+            security)
+              TEST_PATH="tests/security/"
+              ;;
+            web)
+              TEST_PATH="tests/web/"
+              ;;
+            smoke)
+              TEST_PATH="tests/Smoke/"
+              ;;
+            performance)
+              TEST_PATH="tests/mobile/performance/"
+              ;;
+            all)
+              TEST_PATH="tests/"
+              ;;
+          esac
 
-    - name: 🚨 Fail if Tests Failed
-      if: failure() && steps.run-tests.outputs.exit_code != '0'
-      run: |
-        echo "Some tests failed. Check the report above or download the HTML report."
-        exit 1
+          npx playwright test "$TEST_PATH" \
+            --project=${{ inputs.browser }} \
+            --reporter=html,line \
+            --output=test-results/ \
+            2>&1 | tee test-output.txt
+
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: 📊 Show Test Results
+        if: always()
+        run: |
+          echo "# 🎭 Test Results - ${{ inputs['test-category'] }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f "test-output.txt" ]; then
+            echo "## 📋 Test Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+
+            tail -20 test-output.txt | grep -E "tests|passed|failed|skipped" >> "$GITHUB_STEP_SUMMARY" || true
+
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "## 📝 Full Output" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -100 test-output.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No test output found." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## 📁 Tests Executed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          case "${{ inputs['test-category'] }}" in
+            mobile)
+              echo "Running mobile tests:" >> "$GITHUB_STEP_SUMMARY"
+              find tests/mobile/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> "$GITHUB_STEP_SUMMARY" || true
+              ;;
+            security)
+              echo "Running security tests:" >> "$GITHUB_STEP_SUMMARY"
+              find tests/security/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> "$GITHUB_STEP_SUMMARY" || true
+              ;;
+            web)
+              echo "Running web tests:" >> "$GITHUB_STEP_SUMMARY"
+              find tests/web/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> "$GITHUB_STEP_SUMMARY" || true
+              ;;
+            smoke)
+              echo "Running smoke tests:" >> "$GITHUB_STEP_SUMMARY"
+              find tests/Smoke/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> "$GITHUB_STEP_SUMMARY" || true
+              ;;
+            all)
+              echo "Running ALL tests:" >> "$GITHUB_STEP_SUMMARY"
+              find tests/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> "$GITHUB_STEP_SUMMARY" || true
+              ;;
+          esac
+
+      - name: 📁 Upload Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ inputs['test-category'] }}-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-output.txt
+            test-results/
+          retention-days: 7
+
+      - name: 🚨 Fail if Tests Failed
+        if: always()
+        run: |
+          if [ "${{ steps.run-tests.outputs.exit_code }}" != "0" ]; then
+            echo "Some tests failed. Check the report above or download the HTML report."
+            exit 1
+          fi
