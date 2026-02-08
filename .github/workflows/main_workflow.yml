@@ -1,4 +1,4 @@
-name: Professional Test Runner
+name: main
 
 on:
   workflow_dispatch:
@@ -107,7 +107,7 @@ jobs:
     secrets: inherit
 
   generate_reports:
-    needs: execute_tests
+    needs: [validate_and_trigger, execute_tests]
     uses: ./.github/workflows/report_generator.yml
     with:
       test_type: ${{ github.event.inputs.test_type }}
@@ -116,11 +116,12 @@ jobs:
       environment: ${{ github.event.inputs.environment }}
       priority: ${{ github.event.inputs.priority }}
       run_id: ${{ needs.validate_and_trigger.outputs.run_id }}
-      total_tests: ${{ needs.execute_tests.outputs.total_tests }}
-      passed_tests: ${{ needs.execute_tests.outputs.passed_tests }}
-      failed_tests: ${{ needs.execute_tests.outputs.failed_tests }}
-      skipped_tests: ${{ needs.execute_tests.outputs.skipped_tests }}
-      duration: ${{ needs.execute_tests.outputs.duration }}
-      success_rate: ${{ needs.execute_tests.outputs.success_rate }}
-      exit_code: ${{ needs.execute_tests.outputs.exit_code }}
+      # Use conditional expressions to handle missing outputs
+      total_tests: ${{ needs.execute_tests.outputs.total_tests || 0 }}
+      passed_tests: ${{ needs.execute_tests.outputs.passed_tests || 0 }}
+      failed_tests: ${{ needs.execute_tests.outputs.failed_tests || 0 }}
+      skipped_tests: ${{ needs.execute_tests.outputs.skipped_tests || 0 }}
+      duration: ${{ needs.execute_tests.outputs.duration || 0 }}
+      success_rate: ${{ needs.execute_tests.outputs.success_rate || 0 }}
+      exit_code: ${{ needs.execute_tests.outputs.exit_code || 0 }}
     secrets: inherit
