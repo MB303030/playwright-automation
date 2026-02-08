@@ -44,15 +44,29 @@ jobs:
         run: npm ci
 
       - name: 🎭 Install Playwright browsers
-        run: npx playwright install ${{ inputs.browser }} --with-deps
+        run: npx playwright install --with-deps
 
       - name: 🧪 Run Tests
         id: run-tests
         continue-on-error: true
         run: |
-          set -o pipefail
+          set +e
 
           echo "Running ${{ inputs['test-category'] }} tests on ${{ inputs.browser }}..."
+
+          # Map browser input → Playwright project
+          PROJECT=""
+          case "${{ inputs.browser }}" in
+            chromium)
+              PROJECT="chrome"
+              ;;
+            firefox)
+              PROJECT="firefox"
+              ;;
+            webkit)
+              PROJECT="mobile-safari"
+              ;;
+          esac
 
           TEST_PATH=""
           case "${{ inputs['test-category'] }}" in
@@ -77,12 +91,13 @@ jobs:
           esac
 
           npx playwright test "$TEST_PATH" \
-            --project=${{ inputs.browser }} \
+            --project="$PROJECT" \
             --reporter=html,line \
             --output=test-results/ \
             2>&1 | tee test-output.txt
 
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
 
       - name: 📊 Show Test Results
         if: always()
@@ -93,45 +108,14 @@ jobs:
           if [ -f "test-output.txt" ]; then
             echo "## 📋 Test Summary" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-
-            tail -20 test-output.txt | grep -E "tests|passed|failed|skipped" >> "$GITHUB_STEP_SUMMARY" || true
+            grep -E "passed|failed|skipped|tests" test-output.txt | tail -20 >> "$GITHUB_STEP_SUMMARY" || true
 
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "## 📝 Full Output" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "## 📝 Full Output (last 100 lines)" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             tail -100 test-output.txt >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No test output found." >> "$GITHUB_STEP_SUMMARY"
           fi
-
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "## 📁 Tests Executed" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-
-          case "${{ inputs['test-category'] }}" in
-            mobile)
-              echo "Running mobile tests:" >> "$GITHUB_STEP_SUMMARY"
-              find tests/mobile/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> "$GITHUB_STEP_SUMMARY" || true
-              ;;
-            security)
-              echo "Running security tests:" >> "$GITHUB_STEP_SUMMARY"
-              find tests/security/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> "$GITHUB_STEP_SUMMARY" || true
-              ;;
-            web)
-              echo "Running web tests:" >> "$GITHUB_STEP_SUMMARY"
-              find tests/web/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> "$GITHUB_STEP_SUMMARY" || true
-              ;;
-            smoke)
-              echo "Running smoke tests:" >> "$GITHUB_STEP_SUMMARY"
-              find tests/Smoke/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> "$GITHUB_STEP_SUMMARY" || true
-              ;;
-            all)
-              echo "Running ALL tests:" >> "$GITHUB_STEP_SUMMARY"
-              find tests/ -name "*.spec.js" -o -name "*.spec.ts" | sed 's|^|- |' >> "$GITHUB_STEP_SUMMARY" || true
-              ;;
-          esac
 
       - name: 📁 Upload Test Report
         if: always()
