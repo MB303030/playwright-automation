@@ -1,0 +1,161 @@
+name: main
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: '🎯 What type of tests to run?'
+        required: true
+        type: choice
+        options:
+        - Web Tests
+        - All Tests
+      test_suite:
+        description: '📂 Which test suite?'
+        required: false
+        type: choice
+        options:
+        - Smoke
+        - Regression
+        - All
+        default: 'All'
+      browser:
+        description: '🌐 Browser to use'
+        required: true
+        type: choice
+        options:
+        - chrome
+        - firefox
+        - webkit
+        default: 'chrome'
+      environment:
+        description: '🏢 Test environment'
+        required: false
+        type: choice
+        options:
+        - Development
+        - Staging
+        - Production
+        - Custom
+        default: 'Staging'
+
+jobs:
+  debug_and_validate:
+    runs-on: ubuntu-latest
+    outputs:
+      test_path: ${{ steps.validate.outputs.TEST_PATH }}
+      run_id: ${{ steps.generate_id.outputs.run_id }}
+      test_files: ${{ steps.validate.outputs.TEST_FILES }}
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: 🆔 Generate Run ID
+        id: generate_id
+        run: |
+          RUN_ID="run_$(date +%Y%m%d_%H%M%S)"
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+          echo "🎯 Generated Run ID: $RUN_ID"
+      
+      - name: 🔍 Debug Input Parameters
+        run: |
+          echo "=== 🎯 INPUT PARAMETERS ==="
+          echo "Test Type: ${{ github.event.inputs.test_type }}"
+          echo "Test Suite: ${{ github.event.inputs.test_suite }}"
+          echo "Browser: ${{ github.event.inputs.browser }}"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "==========================="
+      
+      - name: 📂 Validate Project Structure
+        id: validate
+        run: |
+          echo "=== 📁 PROJECT STRUCTURE ==="
+          echo "Listing tests directory:"
+          find ./tests -type f -name "*.spec.js" -o -name "*.test.js" | sort
+          echo ""
+          
+          echo "=== 🔍 FINDING TEST FILES ==="
+          TEST_TYPE="${{ github.event.inputs.test_type }}"
+          TEST_SUITE="${{ github.event.inputs.test_suite }}"
+          
+          # Map test type and suite to actual directories
+          if [ "$TEST_TYPE" = "Web Tests" ]; then
+            if [ "$TEST_SUITE" = "Smoke" ]; then
+              TEST_PATH="./tests/Smoke"
+              echo "Looking for Smoke tests at: $TEST_PATH"
+            elif [ "$TEST_SUITE" = "Regression" ]; then
+              TEST_PATH="./tests/web/Regression"
+              echo "Looking for Regression tests at: $TEST_PATH"
+            else  # All
+              TEST_PATH="./tests"
+              echo "Looking for All tests at: $TEST_PATH"
+            fi
+          else  # All Tests
+            TEST_PATH="./tests"
+            echo "Looking for All tests at: $TEST_PATH"
+          fi
+          
+          # Check if path exists
+          if [ ! -d "$TEST_PATH" ] && [ ! -f "$TEST_PATH" ]; then
+            echo "❌ ERROR: Test path '$TEST_PATH' does not exist!"
+            echo "Available test directories:"
+            find ./tests -type d -name "*" | sort
+            exit 1
+          fi
+          
+          # Find actual test files
+          echo ""
+          echo "=== 📄 TEST FILES FOUND ==="
+          TEST_FILES=$(find "$TEST_PATH" -type f \( -name "*.spec.js" -o -name "*.test.js" \) 2>/dev/null || true)
+          
+          if [ -z "$TEST_FILES" ]; then
+            echo "⚠️ WARNING: No test files found in $TEST_PATH"
+            echo "Checking for any JavaScript files..."
+            find "$TEST_PATH" -type f -name "*.js" | sort
+          else
+            echo "$TEST_FILES"
+          fi
+          
+          # Count test files
+          FILE_COUNT=$(echo "$TEST_FILES" | grep -c "^" || echo "0")
+          echo ""
+          echo "📊 Found $FILE_COUNT test file(s)"
+          
+          # Save outputs
+          echo "TEST_PATH=$TEST_PATH" >> $GITHUB_OUTPUT
+          
+          # Create a list of test files for debugging
+          if [ "$FILE_COUNT" -gt 0 ]; then
+            echo "$TEST_FILES" > test_files_list.txt
+            echo "TEST_FILES_COUNT=$FILE_COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "TEST_FILES_COUNT=0" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: 📋 Print Validation Summary
+        run: |
+          echo "=== ✅ VALIDATION SUMMARY ==="
+          echo "Test Path: ${{ steps.validate.outputs.TEST_PATH }}"
+          echo "Test Files Found: ${{ steps.validate.outputs.TEST_FILES_COUNT }}"
+          echo "Run ID: ${{ steps.generate_id.outputs.run_id }}"
+          echo "============================="
+          
+          # Show the structure of the test path
+          if [ -d "${{ steps.validate.outputs.TEST_PATH }}" ]; then
+            echo ""
+            echo "📁 Directory structure of ${{ steps.validate.outputs.TEST_PATH }}:"
+            ls -la "${{ steps.validate.outputs.TEST_PATH }}"
+          fi
+
+  execute_tests:
+    needs: debug_and_validate
+    if: ${{ needs.debug_and_validate.outputs.TEST_FILES_COUNT != '0' }}
+    uses: ./.github/workflows/test_runner.yml
+    with:
+      test_type: ${{ github.event.inputs.test_type }}
+      test_suite: ${{ github.event.inputs.test_suite }}
+      browser: ${{ github.event.inputs.browser }}
+      environment: ${{ github.event.inputs.environment }}
+      test_path: ${{ needs.debug_and_validate.outputs.test_path }}
+      run_id: ${{ needs.debug_and_validate.outputs.run_id }}
+    secrets: inherit
