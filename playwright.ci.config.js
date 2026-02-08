@@ -1,76 +1,106 @@
-const { defineConfig, devices } = require('@playwright/test');
-const path = require('path');
+// @ts-check
+import { defineConfig, devices } from '@playwright/test';
 
-module.exports = defineConfig({
+export default defineConfig({
+  // 🎯 ROOT directory for ALL tests
   testDir: './tests',
   
+  // 📊 Test Execution Settings
   fullyParallel: true,
-  forbidOnly: true,
-  retries: 2,
-  workers: 4,
-
-  reporter:  [
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 1,  // Changed: 1 retry locally can help with flaky tests
+  workers: process.env.CI ? 4 : undefined,  // Let Playwright decide locally
+  
+  // 📈 Reporting
+  reporter: [
     ['list'],
-    ['allure-playwright'],
-    ['html', { 
+    ['html', {
       outputFolder: 'playwright-report',
-      open: 'never'
+      open: 'false',
     }],
-    // Add json reporter for better CI integration
-    ['json', { outputFile: 'test-results/test-results.json' }]
+    ['json', { outputFile: 'test-results/results.json' }],  // Added: For CI integration
+    ['github']  // Added: Shows annotations in GitHub PRs
   ],
-
-  // 🧪 TEST ARTIFACTS - FIXED PATH CONFIGURATION
+  
+  // 🔧 Global Test Settings
   use: {
-    // Store screenshots in test-results folder
-    screenshot: {
-      mode: 'only-on-failure',
-      fullPage: true,
-    },
+    // Global timeout per test
+    actionTimeout: 15000,
+    navigationTimeout: 30000,
     
-    // Store videos in test-results folder  
-    video: {
-      mode: 'retain-on-failure',
-      size: { width: 1920, height: 1080 }
-    },
+    // Authentication (if your app needs it)
+    // storageState: 'playwright/.auth/user.json',
     
-    // Store traces in test-results folder
-    trace: 'retain-on-failure',
+    // Media capture
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+    trace: 'retain-on-failure',  // Consider 'on-first-retry' for CI
     
+    // Browser settings
     headless: true,
+    ignoreHTTPSErrors: false,  // Explicitly false for security tests
     
-    // Base path for all artifacts
-    baseURL: process.env.BASE_URL || 'http://localhost:3000',
+    // Viewport
+    // viewport: { width: 1920, height: 1080 }, // Moved to project-specific
   },
 
-  // 📱 + 💻 Project configuration
+  // ⚙️ Project-Specific Configurations
   projects: [
+    // ===== CHROME: ALL WEB TESTS =====
     {
-      name: 'chrome-web',
-      use: {
+      name: 'chrome',
+      use: { 
         ...devices['Desktop Chrome'],
         viewport: { width: 1920, height: 1080 },
-        // Project-specific screenshot settings
-        screenshot: 'only-on-failure',
-        video: 'retain-on-failure',
-        trace: 'retain-on-failure',
+        launchOptions: {
+          args: ['--disable-dev-shm-usage', '--no-sandbox']  // Better for CI
+        }
+      },
+      // Exclude mobile tests
+      grepInvert: /@Mobile/,
+    },
+
+    // ===== FIREFOX: SMOKE TESTS =====
+    {
+      name: 'firefox',
+      use: { 
+        ...devices['Desktop Firefox'],
+        viewport: { width: 1920, height: 1080 },
+      },
+      grep: /@Smoke/,  // Only run smoke tests on Firefox for speed
+      retries: 0,  // No retries for smoke tests
+    },
+
+    // ===== MOBILE: ALL MOBILE TESTS =====
+    {
+      name: 'mobile-chrome',
+      grep: /@Mobile/,
+      use: { 
+        ...devices['Pixel 5'],  // Consider adding Android too
       },
     },
     {
-      name: 'mobile',
+      name: 'mobile-safari',
       grep: /@Mobile/,
-      use: {
+      use: { 
         ...devices['iPhone 12'],
         isMobile: true,
         hasTouch: true,
-        // Project-specific screenshot settings
-        screenshot: 'only-on-failure',
-        video: 'retain-on-failure',
-        trace: 'retain-on-failure',
       },
     },
   ],
-
-  // Global output directory for all artifacts
-  outputDir: 'test-results/',
+  
+  // ⏱️ Global Timeouts
+  timeout: 60000,  // 60 seconds per test
+  expect: {
+    timeout: 10000,  // 10 seconds for assertions
+  },
+  
+  // 🌐 Web Server (if your app needs a dev server)
+  // webServer: {
+  //   command: 'npm run start',
+  //   url: 'http://localhost:3000',
+  //   reuseExistingServer: !process.env.CI,
+  //   timeout: 120 * 1000,
+  // },
 });
