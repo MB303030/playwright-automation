@@ -1,4 +1,4 @@
-name: צשןמ
+name: main
 
 on:
   workflow_dispatch:
