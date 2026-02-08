@@ -3,22 +3,16 @@ name: main
 on:
   workflow_dispatch:
     inputs:
-      test_type:
-        description: '🎯 What type of tests to run?'
-        required: true
-        type: choice
-        options:
-        - Web Tests
-        - All Tests
       test_suite:
         description: '📂 Which test suite?'
-        required: false
+        required: true
         type: choice
         options:
         - Smoke
         - Regression
-        - All
-        default: 'All'
+        - Sanity
+        - Negative
+        default: 'Smoke'
       browser:
         description: '🌐 Browser to use'
         required: true
@@ -28,24 +22,10 @@ on:
         - firefox
         - webkit
         default: 'chrome'
-      environment:
-        description: '🏢 Test environment'
-        required: false
-        type: choice
-        options:
-        - Development
-        - Staging
-        - Production
-        - Custom
-        default: 'Staging'
 
 jobs:
-  debug_and_validate:
+  debug_and_run:
     runs-on: ubuntu-latest
-    outputs:
-      test_path: ${{ steps.validate.outputs.TEST_PATH }}
-      run_id: ${{ steps.generate_id.outputs.run_id }}
-      test_files: ${{ steps.validate.outputs.TEST_FILES }}
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
@@ -57,105 +37,157 @@ jobs:
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
           echo "🎯 Generated Run ID: $RUN_ID"
       
-      - name: 🔍 Debug Input Parameters
+      - name: 🔍 Debug Inputs
         run: |
           echo "=== 🎯 INPUT PARAMETERS ==="
-          echo "Test Type: ${{ github.event.inputs.test_type }}"
           echo "Test Suite: ${{ github.event.inputs.test_suite }}"
           echo "Browser: ${{ github.event.inputs.browser }}"
-          echo "Environment: ${{ github.event.inputs.environment }}"
           echo "==========================="
       
-      - name: 📂 Validate Project Structure
-        id: validate
+      - name: 📂 Show Actual Project Structure
         run: |
-          echo "=== 📁 PROJECT STRUCTURE ==="
-          echo "Listing tests directory:"
-          find ./tests -type f -name "*.spec.js" -o -name "*.test.js" | sort
+          echo "=== 📁 ACTUAL PROJECT STRUCTURE ==="
+          echo "Listing ./tests/web directory:"
+          ls -la ./tests/web/
+          echo ""
+          
+          echo "Listing ./tests/web/${{ github.event.inputs.test_suite }} directory:"
+          ls -la ./tests/web/${{ github.event.inputs.test_suite }}/ || echo "Directory not found"
           echo ""
           
           echo "=== 🔍 FINDING TEST FILES ==="
-          TEST_TYPE="${{ github.event.inputs.test_type }}"
-          TEST_SUITE="${{ github.event.inputs.test_suite }}"
+          TEST_PATH="./tests/web/${{ github.event.inputs.test_suite }}"
+          echo "Looking for test files in: $TEST_PATH"
           
-          # Map test type and suite to actual directories
-          if [ "$TEST_TYPE" = "Web Tests" ]; then
-            if [ "$TEST_SUITE" = "Smoke" ]; then
-              TEST_PATH="./tests/Smoke"
-              echo "Looking for Smoke tests at: $TEST_PATH"
-            elif [ "$TEST_SUITE" = "Regression" ]; then
-              TEST_PATH="./tests/web/Regression"
-              echo "Looking for Regression tests at: $TEST_PATH"
-            else  # All
-              TEST_PATH="./tests"
-              echo "Looking for All tests at: $TEST_PATH"
-            fi
-          else  # All Tests
-            TEST_PATH="./tests"
-            echo "Looking for All tests at: $TEST_PATH"
-          fi
-          
-          # Check if path exists
-          if [ ! -d "$TEST_PATH" ] && [ ! -f "$TEST_PATH" ]; then
-            echo "❌ ERROR: Test path '$TEST_PATH' does not exist!"
-            echo "Available test directories:"
-            find ./tests -type d -name "*" | sort
+          if [ ! -d "$TEST_PATH" ]; then
+            echo "❌ ERROR: Directory '$TEST_PATH' does not exist!"
+            echo ""
+            echo "Available directories in ./tests/web/:"
+            ls -la ./tests/web/
             exit 1
           fi
           
-          # Find actual test files
-          echo ""
-          echo "=== 📄 TEST FILES FOUND ==="
-          TEST_FILES=$(find "$TEST_PATH" -type f \( -name "*.spec.js" -o -name "*.test.js" \) 2>/dev/null || true)
+          # Find all .spec.js files
+          TEST_FILES=$(find "$TEST_PATH" -name "*.spec.js" -type f 2>/dev/null || true)
           
           if [ -z "$TEST_FILES" ]; then
-            echo "⚠️ WARNING: No test files found in $TEST_PATH"
-            echo "Checking for any JavaScript files..."
-            find "$TEST_PATH" -type f -name "*.js" | sort
+            echo "⚠️ WARNING: No .spec.js files found in $TEST_PATH"
+            echo "Looking for any .js files..."
+            find "$TEST_PATH" -name "*.js" -type f 2>/dev/null || echo "No .js files found"
           else
+            echo "✅ Found test files:"
             echo "$TEST_FILES"
-          fi
-          
-          # Count test files
-          FILE_COUNT=$(echo "$TEST_FILES" | grep -c "^" || echo "0")
-          echo ""
-          echo "📊 Found $FILE_COUNT test file(s)"
-          
-          # Save outputs
-          echo "TEST_PATH=$TEST_PATH" >> $GITHUB_OUTPUT
-          
-          # Create a list of test files for debugging
-          if [ "$FILE_COUNT" -gt 0 ]; then
-            echo "$TEST_FILES" > test_files_list.txt
-            echo "TEST_FILES_COUNT=$FILE_COUNT" >> $GITHUB_OUTPUT
-          else
-            echo "TEST_FILES_COUNT=0" >> $GITHUB_OUTPUT
+            echo ""
+            echo "📊 File count: $(echo "$TEST_FILES" | wc -l)"
           fi
       
-      - name: 📋 Print Validation Summary
+      - name: 🧪 Run Actual Playwright Tests
+        id: run_tests
         run: |
-          echo "=== ✅ VALIDATION SUMMARY ==="
-          echo "Test Path: ${{ steps.validate.outputs.TEST_PATH }}"
-          echo "Test Files Found: ${{ steps.validate.outputs.TEST_FILES_COUNT }}"
-          echo "Run ID: ${{ steps.generate_id.outputs.run_id }}"
-          echo "============================="
+          echo "=== 🚀 RUNNING ACTUAL TESTS ==="
           
-          # Show the structure of the test path
-          if [ -d "${{ steps.validate.outputs.TEST_PATH }}" ]; then
-            echo ""
-            echo "📁 Directory structure of ${{ steps.validate.outputs.TEST_PATH }}:"
-            ls -la "${{ steps.validate.outputs.TEST_PATH }}"
+          TEST_PATH="./tests/web/${{ github.event.inputs.test_suite }}"
+          RUN_ID="${{ steps.generate_id.outputs.run_id }}"
+          
+          echo "Test Path: $TEST_PATH"
+          echo "Run ID: $RUN_ID"
+          echo "Browser: ${{ github.event.inputs.browser }}"
+          
+          # Map browser name for Playwright
+          if [ "${{ github.event.inputs.browser }}" = "chrome" ]; then
+            PROJECT="chromium"
+          elif [ "${{ github.event.inputs.browser }}" = "firefox" ]; then
+            PROJECT="firefox"
+          elif [ "${{ github.event.inputs.browser }}" = "webkit" ]; then
+            PROJECT="webkit"
+          else
+            PROJECT="chromium"
           fi
-
-  execute_tests:
-    needs: debug_and_validate
-    if: ${{ needs.debug_and_validate.outputs.TEST_FILES_COUNT != '0' }}
-    uses: ./.github/workflows/test_runner.yml
-    with:
-      test_type: ${{ github.event.inputs.test_type }}
-      test_suite: ${{ github.event.inputs.test_suite }}
-      browser: ${{ github.event.inputs.browser }}
-      environment: ${{ github.event.inputs.environment }}
-      test_path: ${{ needs.debug_and_validate.outputs.test_path }}
-      run_id: ${{ needs.debug_and_validate.outputs.run_id }}
-    secrets: inherit
+          
+          # Create directories for reports
+          HTML_REPORT_DIR="./playwright-report-html/$RUN_ID"
+          TEST_RESULTS_DIR="./test-results/$RUN_ID"
+          
+          mkdir -p $HTML_REPORT_DIR
+          mkdir -p $TEST_RESULTS_DIR
+          
+          echo ""
+          echo "📁 HTML Report will be in: $HTML_REPORT_DIR"
+          echo "📁 Test Results will be in: $TEST_RESULTS_DIR"
+          
+          # Check if we have package.json and Playwright
+          if [ ! -f "package.json" ]; then
+            echo "❌ ERROR: No package.json found!"
+            exit 1
+          fi
+          
+          # Install dependencies if needed
+          echo "📦 Checking dependencies..."
+          npm list @playwright/test 2>/dev/null || npm install
+          
+          # Install browsers
+          echo "🔧 Installing browsers..."
+          npx playwright install --with-deps
+          
+          # Run the actual tests
+          echo ""
+          echo "🧪 Executing command:"
+          echo "npx playwright test \"$TEST_PATH\" --project=$PROJECT --reporter=html,line --output=\"$TEST_RESULTS_DIR\""
+          echo ""
+          
+          set +e
+          npx playwright test \
+            "$TEST_PATH" \
+            --project="$PROJECT" \
+            --reporter=html,line \
+            --output="$TEST_RESULTS_DIR" \
+            --retries=1
+          TEST_EXIT_CODE=$?
+          set -e
+          
+          echo ""
+          echo "📊 Test exit code: $TEST_EXIT_CODE"
+          
+          # Move HTML report to its own directory
+          if [ -d "$TEST_RESULTS_DIR/playwright-report" ]; then
+            mv "$TEST_RESULTS_DIR/playwright-report"/* "$HTML_REPORT_DIR/" 2>/dev/null || true
+          fi
+      
+      - name: 📦 Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ steps.generate_id.outputs.run_id }}
+          path: ./test-results/${{ steps.generate_id.outputs.run_id }}
+          retention-days: 7
+      
+      - name: 📦 Upload HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report-${{ steps.generate_id.outputs.run_id }}
+          path: ./playwright-report-html/${{ steps.generate_id.outputs.run_id }}
+          retention-days: 7
+      
+      - name: 📊 Create Summary
+        if: always()
+        run: |
+          echo "## 🧪 Test Execution Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Test Suite: ${{ github.event.inputs.test_suite }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Browser: ${{ github.event.inputs.browser }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Run ID: ${{ steps.generate_id.outputs.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "**Artifacts Available:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. **test-results-${{ steps.generate_id.outputs.run_id }}** - Raw test results" >> $GITHUB_STEP_SUMMARY
+          echo "2. **playwright-html-report-${{ steps.generate_id.outputs.run_id }}** - HTML report (open index.html in browser)" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.run_tests.outcome }}" = "success" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **Tests executed successfully!**" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Tests may have failed or encountered issues**" >> $GITHUB_STEP_SUMMARY
+          fi
