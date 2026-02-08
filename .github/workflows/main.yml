@@ -1,4 +1,4 @@
-name: main
+name: Run Playwright Tests
 
 on:
   workflow_dispatch:
@@ -8,6 +8,7 @@ on:
         required: true
         type: choice
         options:
+        - All Tests
         - Smoke
         - Regression
         - Sanity
@@ -43,14 +44,21 @@ jobs:
         run: |
           echo "=== 📁 CHECKING TEST FILES ==="
           
-          TEST_PATH="./tests/web/${{ github.event.inputs.test_suite }}"
-          echo "Looking for tests in: $TEST_PATH"
+          # Determine test path based on selection
+          if [ "${{ github.event.inputs.test_suite }}" = "All Tests" ]; then
+            TEST_PATH="./tests/web"
+            echo "Running ALL tests from: $TEST_PATH"
+          else
+            TEST_PATH="./tests/web/${{ github.event.inputs.test_suite }}"
+            echo "Running ${{ github.event.inputs.test_suite }} tests from: $TEST_PATH"
+          fi
           
+          # Check if directory exists
           if [ ! -d "$TEST_PATH" ]; then
             echo "❌ ERROR: Directory '$TEST_PATH' does not exist!"
             echo ""
-            echo "Available directories in ./tests/web/:"
-            ls -la ./tests/web/ || echo "No tests/web directory found"
+            echo "Available directories in ./tests/:"
+            find ./tests -type d -name "*" | sort
             exit 1
           fi
           
@@ -80,7 +88,13 @@ jobs:
         run: |
           echo "=== 🧪 RUNNING TESTS ==="
           
-          TEST_PATH="./tests/web/${{ github.event.inputs.test_suite }}"
+          # Determine test path
+          if [ "${{ github.event.inputs.test_suite }}" = "All Tests" ]; then
+            TEST_PATH="./tests/web"
+          else
+            TEST_PATH="./tests/web/${{ github.event.inputs.test_suite }}"
+          fi
+          
           PROJECT="${{ github.event.inputs.project }}"
           
           echo "Test Path: $TEST_PATH"
