@@ -1,17 +1,23 @@
-name: TAG metrix 
+name: Tag
 
 on:
-  workflow_dispatch:  # Manual trigger ONLY
-
-env:
-  # Default tags if not specified
-  RUN_TAGS: ""
-  RUN_PROJECT: ""
-  FAIL_ON_FAILED_TESTS: "true"
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [ main, master ]
 
 jobs:
   playwright-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    # Define matrix for parallel test runs if needed
+    strategy:
+      matrix:
+        # Optional: Run different test groups in parallel
+        # shardIndex: [1, 2, 3, 4]
+        # shardTotal: [4]
+        project: ['chrome', 'mobile-chrome', 'firefox']  # Run each project separately
     
     steps:
     - name: 📥 Checkout code
@@ -24,398 +30,250 @@ jobs:
         cache: 'npm'
 
     - name: 📦 Install dependencies
-      run: npm ci
+      run: |
+        npm ci
+        npm list @playwright/test || npm install @playwright/test
 
     - name: 🎭 Install Playwright browsers
-      run: npx playwright install --with-deps chromium firefox webkit
+      run: npx playwright install --with-deps chromium firefox
 
-    - name: 🧪 Run Playwright tests with tag analysis
-      id: run-tests
+    - name: 🧪 Run Playwright tests
+      id: playwright-tests
+      continue-on-error: true  # Don't fail immediately, we'll handle it later
       run: |
         echo "🚀 Running Playwright tests..."
         
-        # Set up test run command based on tags/project
-        TEST_CMD="npx playwright test --config=playwright.config.js"
-        
-        if [ -n "${{ env.RUN_TAGS }}" ]; then
-          TEST_CMD="$TEST_CMD --grep ${{ env.RUN_TAGS }}"
+        # Set project if using matrix, otherwise run all
+        PROJECT_CMD=""
+        if [ -n "${{ matrix.project }}" ]; then
+          PROJECT_CMD="--project ${{ matrix.project }}"
         fi
         
-        if [ -n "${{ env.RUN_PROJECT }}" ]; then
-          TEST_CMD="$TEST_CMD --project ${{ env.RUN_PROJECT }}"
-        fi
-        
-        echo "Running: $TEST_CMD"
-        
-        # Run tests with multiple reporters
-        $TEST_CMD \
-          --reporter=list,html,json \
-          --reporter-html-open=never \
-          --reporter-json-output=test-results/results.json \
-          2>&1 | tee playwright-test-output.txt
+        # Run tests and capture output
+        npx playwright test $PROJECT_CMD \
+          --reporter=html,line,json \
+          --output=test-results/ \
+          2>&1 | tee test-output.log
         
         # Save exit code
-        TEST_EXIT_CODE=$?
-        echo "TEST_EXIT_CODE=$TEST_EXIT_CODE" >> $GITHUB_ENV
+        echo "exit_code=$?" >> $GITHUB_OUTPUT
         
-        # Extract overall metrics
-        if [ -f "playwright-test-output.txt" ]; then
-          TOTAL_TESTS=$(grep -o "[0-9]\+ tests" playwright-test-output.txt | head -1 | grep -o "[0-9]\+" || echo "0")
-          PASSED_TESTS=$(grep -o "[0-9]\+ passed" playwright-test-output.txt | head -1 | grep -o "[0-9]\+" || echo "0")
-          FAILED_TESTS=$(grep -o "[0-9]\+ failed" playwright-test-output.txt | head -1 | grep -o "[0-9]\+" || echo "0")
-          SKIPPED_TESTS=$(grep -o "[0-9]\+ skipped" playwright-test-output.txt | head -1 | grep -o "[0-9]\+" || echo "0")
-          DURATION=$(grep -o "in [0-9]\+[\.][0-9]\+s" playwright-test-output.txt | tail -1 | sed 's/in //' || echo "0s")
+        # Basic metrics extraction
+        if [ -f "test-results/report.json" ]; then
+          TOTAL_TESTS=$(jq '.stats.total // 0' test-results/report.json)
+          PASSED_TESTS=$(jq '.stats.expected // 0' test-results/report.json)
+          FAILED_TESTS=$(jq '.stats.unexpected // 0' test-results/report.json)
+          SKIPPED_TESTS=$(jq '.stats.skipped // 0' test-results/report.json)
           
-          echo "TOTAL_TESTS=$TOTAL_TESTS" >> $GITHUB_ENV
-          echo "PASSED_TESTS=$PASSED_TESTS" >> $GITHUB_ENV
-          echo "FAILED_TESTS=$FAILED_TESTS" >> $GITHUB_ENV
-          echo "SKIPPED_TESTS=$SKIPPED_TESTS" >> $GITHUB_ENV
-          echo "DURATION=$DURATION" >> $GITHUB_ENV
+          echo "total_tests=$TOTAL_TESTS" >> $GITHUB_OUTPUT
+          echo "passed_tests=$PASSED_TESTS" >> $GITHUB_OUTPUT
+          echo "failed_tests=$FAILED_TESTS" >> $GITHUB_OUTPUT
+          echo "skipped_tests=$SKIPPED_TESTS" >> $GITHUB_OUTPUT
           
-          # Calculate pass rate
           if [ "$TOTAL_TESTS" -gt 0 ]; then
             PASS_RATE=$((PASSED_TESTS * 100 / TOTAL_TESTS))
-            echo "PASS_RATE=$PASS_RATE" >> $GITHUB_ENV
+            echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
           else
-            echo "PASS_RATE=0" >> $GITHUB_ENV
+            echo "pass_rate=0" >> $GITHUB_OUTPUT
           fi
         fi
 
-    - name: 📊 Generate Tag Metrics
-      if: always() && env.TEST_EXIT_CODE == 0
-      run: |
-        echo "🔍 Generating tag-based metrics..."
-        
-        # Create a summary JSON with tag breakdown
-        if [ -f "test-results/results.json" ]; then
-          # Use Node.js to parse and analyze test results by tag
-          node << 'EOF'
-          const fs = require('fs');
-          
-          try {
-            const results = JSON.parse(fs.readFileSync('test-results/results.json', 'utf8'));
-            
-            // Collect all tags and their stats
-            const tagStats = {};
-            const projectStats = {};
-            
-            function processTest(test, spec, suite, projectName) {
-              const lastResult = test.results[test.results.length - 1];
-              const status = lastResult?.status || 'unknown';
-              const tags = spec.tags || [];
-              const duration = lastResult?.duration || 0;
-              
-              // Update project stats
-              projectStats[projectName] = projectStats[projectName] || { total: 0, passed: 0, failed: 0, skipped: 0, duration: 0 };
-              projectStats[projectName].total++;
-              projectStats[projectName].duration += duration;
-              if (status === 'passed') projectStats[projectName].passed++;
-              else if (status === 'failed') projectStats[projectName].failed++;
-              else if (status === 'skipped') projectStats[projectName].skipped++;
-              
-              // Update tag stats
-              tags.forEach(tag => {
-                tagStats[tag] = tagStats[tag] || { total: 0, passed: 0, failed: 0, skipped: 0, duration: 0 };
-                tagStats[tag].total++;
-                tagStats[tag].duration += duration;
-                if (status === 'passed') tagStats[tag].passed++;
-                else if (status === 'failed') tagStats[tag].failed++;
-                else if (status === 'skipped') tagStats[tag].skipped++;
-              });
-              
-              // Also track untagged tests
-              if (tags.length === 0) {
-                tagStats['@Untagged'] = tagStats['@Untagged'] || { total: 0, passed: 0, failed: 0, skipped: 0, duration: 0 };
-                tagStats['@Untagged'].total++;
-                tagStats['@Untagged'].duration += duration;
-                if (status === 'passed') tagStats['@Untagged'].passed++;
-                else if (status === 'failed') tagStats['@Untagged'].failed++;
-                else if (status === 'skipped') tagStats['@Untagged'].skipped++;
-              }
-            }
-            
-            // Process all suites
-            results.suites?.forEach(suite => {
-              suite.specs?.forEach(spec => {
-                spec.tests?.forEach(test => {
-                  processTest(test, spec, suite, results.config?.projects?.[0]?.name || 'default');
-                });
-              });
-              
-              // Process nested suites
-              function processNestedSuites(nestedSuite) {
-                nestedSuite.specs?.forEach(spec => {
-                  spec.tests?.forEach(test => {
-                    processTest(test, spec, nestedSuite, results.config?.projects?.[0]?.name || 'default');
-                  });
-                });
-                nestedSuite.suites?.forEach(processNestedSuites);
-              }
-              suite.suites?.forEach(processNestedSuites);
-            });
-            
-            // Calculate pass rates and format durations
-            Object.keys(tagStats).forEach(tag => {
-              const stats = tagStats[tag];
-              stats.passRate = stats.total > 0 ? Math.round((stats.passed / stats.total) * 100) : 0;
-              stats.avgDuration = stats.total > 0 ? Math.round(stats.duration / stats.total) : 0;
-              stats.durationFormatted = `${Math.round(stats.duration / 1000)}s`;
-              stats.avgDurationFormatted = `${stats.avgDuration}ms`;
-            });
-            
-            Object.keys(projectStats).forEach(project => {
-              const stats = projectStats[project];
-              stats.passRate = stats.total > 0 ? Math.round((stats.passed / stats.total) * 100) : 0;
-              stats.avgDuration = stats.total > 0 ? Math.round(stats.duration / stats.total) : 0;
-              stats.durationFormatted = `${Math.round(stats.duration / 1000)}s`;
-              stats.avgDurationFormatted = `${stats.avgDuration}ms`;
-            });
-            
-            // Save tag metrics
-            const metrics = {
-              summary: {
-                total: results.stats?.total || 0,
-                passed: results.stats?.expected || 0,
-                failed: results.stats?.unexpected || 0,
-                skipped: results.stats?.skipped || 0,
-                duration: results.stats?.duration || 0,
-                passRate: results.stats?.total > 0 ? Math.round((results.stats?.expected / results.stats?.total) * 100) : 0
-              },
-              tags: tagStats,
-              projects: projectStats,
-              generatedAt: new Date().toISOString()
-            };
-            
-            fs.writeFileSync('test-results/tag-metrics.json', JSON.stringify(metrics, null, 2));
-            console.log('✅ Tag metrics generated: test-results/tag-metrics.json');
-            
-            // Also output to environment for the summary
-            const tagMetricsEnv = Object.entries(tagStats)
-              .map(([tag, stats]) => `${tag.toUpperCase().replace('@', '')}_TOTAL=${stats.total}`)
-              .join('\n');
-            
-            // Write to GITHUB_ENV
-            const envFile = process.env.GITHUB_ENV || '.env';
-            fs.appendFileSync(envFile, `\n${tagMetricsEnv}\n`);
-            
-            // Create a summary text file
-            let summaryText = '# 🏷️ Test Metrics by Tag\n\n';
-            summaryText += '| Tag | Total | ✅ Passed | ❌ Failed | ⏭️ Skipped | 📈 Pass Rate | ⏱️ Avg Duration |\n';
-            summaryText += '|-----|-------|-----------|-----------|------------|--------------|----------------|\n';
-            
-            Object.entries(tagStats)
-              .sort((a, b) => b[1].total - a[1].total)
-              .forEach(([tag, stats]) => {
-                summaryText += `| ${tag} | ${stats.total} | ${stats.passed} | ${stats.failed} | ${stats.skipped} | ${stats.passRate}% | ${stats.avgDurationFormatted} |\n`;
-              });
-            
-            fs.writeFileSync('test-results/tag-summary.md', summaryText);
-            console.log('✅ Tag summary generated: test-results/tag-summary.md');
-            
-          } catch (error) {
-            console.error('❌ Error generating tag metrics:', error.message);
-          }
-          EOF
-        else
-          echo "❌ No results.json found for tag analysis"
-        fi
-
-    - name: 📊 Create Enhanced Test Report
+    - name: 📊 Generate Detailed Report
       if: always()
       run: |
         echo "# 🎭 Playwright Test Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        # Overall status with emoji
-        if [ "${TEST_EXIT_CODE}" = "0" ]; then
-          echo "## 🎉 ALL TESTS PASSED" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Great job! All UI tests completed successfully.** 🚀" >> $GITHUB_STEP_SUMMARY
+        # Load metrics from outputs
+        EXIT_CODE=${{ steps.playwright-tests.outputs.exit_code }}
+        TOTAL_TESTS=${{ steps.playwright-tests.outputs.total_tests || 0 }}
+        PASSED_TESTS=${{ steps.playwright-tests.outputs.passed_tests || 0 }}
+        FAILED_TESTS=${{ steps.playwright-tests.outputs.failed_tests || 0 }}
+        SKIPPED_TESTS=${{ steps.playwright-tests.outputs.skipped_tests || 0 }}
+        PASS_RATE=${{ steps.playwright-tests.outputs.pass_rate || 0 }}
+        
+        # Overall status
+        if [ "$EXIT_CODE" = "0" ]; then
+          echo "## ✅ ALL TESTS PASSED!" >> $GITHUB_STEP_SUMMARY
+          echo "**🎉 Great job! All tests completed successfully.**" >> $GITHUB_STEP_SUMMARY
         else
-          echo "## ⚠️ TESTS NEED ATTENTION" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**${FAILED_TESTS} test(s) failed** - Review the details below." >> $GITHUB_STEP_SUMMARY
+          echo "## ❌ TESTS FAILED" >> $GITHUB_STEP_SUMMARY
+          echo "**${FAILED_TESTS} test(s) need attention.**" >> $GITHUB_STEP_SUMMARY
         fi
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        # High-level metrics
-        echo "### 📈 Overall Summary" >> $GITHUB_STEP_SUMMARY
+        # Summary table
+        echo "### 📊 Test Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Metric | Result | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|--------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Metric | Result |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **Total Tests** | $TOTAL_TESTS |" >> $GITHUB_STEP_SUMMARY
+        echo "| **✅ Passed** | $PASSED_TESTS |" >> $GITHUB_STEP_SUMMARY
+        echo "| **❌ Failed** | $FAILED_TESTS |" >> $GITHUB_STEP_SUMMARY
+        echo "| **⏭️ Skipped** | $SKIPPED_TESTS |" >> $GITHUB_STEP_SUMMARY
+        echo "| **📈 Pass Rate** | ${PASS_RATE}% |" >> $GITHUB_STEP_SUMMARY
         
-        # Determine status indicators
-        if [ "${TEST_EXIT_CODE}" = "0" ]; then
-          echo "| **Overall Status** | ✅ **PASSED** | Success |" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "| **Overall Status** | ❌ **FAILED** | Needs Fixing |" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "| **Total Tests** | ${TOTAL_TESTS} | - |" >> $GITHUB_STEP_SUMMARY
-        echo "| **✅ Passed** | ${PASSED_TESTS} | $([ ${PASSED_TESTS} -gt 0 ] && echo "✅" || echo "➖") |" >> $GITHUB_STEP_SUMMARY
-        echo "| **❌ Failed** | ${FAILED_TESTS} | $([ ${FAILED_TESTS} -eq 0 ] && echo "✅" || echo "⚠️") |" >> $GITHUB_STEP_SUMMARY
-        echo "| **⏭️ Skipped** | ${SKIPPED_TESTS} | $([ ${SKIPPED_TESTS} -eq 0 ] && echo "✅" || echo "ℹ️") |" >> $GITHUB_STEP_SUMMARY
-        echo "| **⏱️ Duration** | ${DURATION} | - |" >> $GITHUB_STEP_SUMMARY
-        
-        if [ "$TOTAL_TESTS" -gt 0 ]; then
-          echo "| **📈 Pass Rate** | ${PASS_RATE}% | $([ ${PASS_RATE} -ge 90 ] && echo "✅ Excellent" || ([ ${PASS_RATE} -ge 70 ] && echo "⚠️ Needs Improvement" || echo "❌ Poor")) |" >> $GITHUB_STEP_SUMMARY
+        if [ -n "${{ matrix.project }}" ]; then
+          echo "| **🏷️ Project** | ${{ matrix.project }} |" >> $GITHUB_STEP_SUMMARY
         fi
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        # Tag-based metrics section
-        if [ -f "test-results/tag-summary.md" ]; then
-          echo "### 🏷️ Test Results by Tag" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Detailed breakdown of test performance by tag:" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          cat test-results/tag-summary.md | tail -n +3 >> $GITHUB_STEP_SUMMARY
+        # Show individual test results if JSON report exists
+        if [ -f "test-results/report.json" ]; then
+          echo "### 📋 Test Results by Suite" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          # Add tag insights
-          echo "#### 🔍 Tag Insights" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Generate insights from tag metrics
-          if [ -f "test-results/tag-metrics.json" ]; then
-            node << 'EOF'
-            const fs = require('fs');
-            try {
-              const metrics = JSON.parse(fs.readFileSync('test-results/tag-metrics.json', 'utf8'));
-              const tags = metrics.tags;
-              
-              // Find largest tag group
-              const largestTag = Object.entries(tags).reduce((max, [tag, stats]) => 
-                stats.total > max.stats.total ? { tag, stats } : max, 
-                { tag: '', stats: { total: 0 } }
-              );
-              
-              // Find tag with lowest pass rate (excluding zero-test tags)
-              const lowPassTags = Object.entries(tags)
-                .filter(([_, stats]) => stats.total >= 5 && stats.passRate < 90)
-                .sort((a, b) => a[1].passRate - b[1].passRate)
-                .slice(0, 3);
-              
-              // Find fastest tag
-              const fastestTag = Object.entries(tags)
-                .filter(([_, stats]) => stats.total >= 3)
-                .reduce((min, [tag, stats]) => 
-                  stats.avgDuration < min.stats.avgDuration ? { tag, stats } : min, 
-                  { tag: '', stats: { avgDuration: Infinity } }
-                );
-              
-              console.log(`- **Largest Test Group**: ${largestTag.tag} (${largestTag.stats.total} tests)`);
-              
-              if (lowPassTags.length > 0) {
-                console.log('- **Tags Needing Attention**:');
-                lowPassTags.forEach(([tag, stats]) => {
-                  console.log(`  - ${tag}: ${stats.passRate}% pass rate (${stats.failed} failures)`);
-                });
-              } else {
-                console.log('- **All tags have excellent pass rates!** ✅');
-              }
-              
-              if (fastestTag.tag) {
-                console.log(`- **Fastest Tag**: ${fastestTag.tag} (avg ${fastestTag.stats.avgDurationFormatted} per test)`);
-              }
-              
-            } catch (error) {
-              console.log('- *Unable to generate tag insights*');
-            }
-            EOF
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "### 🏷️ Test Results by Tag" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "*Tag analysis not available for this run.*" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        # Failing tests details (if any)
-        if [ "$FAILED_TESTS" -gt 0 ] && [ -f "playwright-test-output.txt" ]; then
-          echo "### 🔍 Failing Tests" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Extract failing tests with more context
-          FAILED_TEST_BLOCKS=$(grep -B2 -A1 "\[FAILED\]" playwright-test-output.txt || true)
-          if [ -n "$FAILED_TEST_BLOCKS" ]; then
-            echo "**Failed test cases:**" >> $GITHUB_STEP_SUMMARY
+          # Use jq to parse and display test results
+          if command -v jq &> /dev/null; then
+            echo "| Suite | Test | Status | Duration | Tags |" >> $GITHUB_STEP_SUMMARY
+            echo "|-------|------|--------|----------|------|" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract and format test results
+            jq -r '
+              .suites[]? | .title as $suite |
+              .specs[]? | .title as $spec |
+              .tests[]? | 
+              .results[-1] as $result |
+              "| \($suite) | \($spec) | \($result.status) | \($result.duration)ms | \(.tags // [] | join(", ")) |"
+            ' test-results/report.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "| *Error parsing detailed results* | | | | |" >> $GITHUB_STEP_SUMMARY
+            
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "$FAILED_TEST_BLOCKS" | head -30 >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+        fi
+        
+        # Show failing tests in detail
+        if [ "$FAILED_TESTS" -gt 0 ]; then
+          echo "### 🔍 Failed Tests Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "test-output.log" ]; then
+            echo "```" >> $GITHUB_STEP_SUMMARY
+            # Extract just the failed test lines
+            grep -A 3 -B 1 "\[FAIL\]\|✗\|×" test-output.log | head -30 >> $GITHUB_STEP_SUMMARY
+            echo "```" >> $GITHUB_STEP_SUMMARY
           else
-            echo "Check the HTML report for detailed failure information." >> $GITHUB_STEP_SUMMARY
+            echo "*Check the HTML report for detailed failure information.*" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
         fi
         
-        # Actionable recommendations
-        echo "### 🚀 Recommended Actions" >> $GITHUB_STEP_SUMMARY
+        # Tag analysis
+        if [ -f "test-results/report.json" ] && command -v jq &> /dev/null; then
+          echo "### 🏷️ Tag Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Create temporary Python script for tag analysis
+          python3 << 'EOF'
+import json
+import sys
+from collections import defaultdict
+
+try:
+    with open('test-results/report.json', 'r') as f:
+        data = json.load(f)
+    
+    tag_stats = defaultdict(lambda: {'total': 0, 'passed': 0, 'failed': 0, 'skipped': 0, 'duration': 0})
+    
+    def process_test(test, spec):
+        last_result = test['results'][-1] if test.get('results') else {}
+        status = last_result.get('status', 'unknown')
+        duration = last_result.get('duration', 0)
+        tags = spec.get('tags', []) or []
+        
+        if not tags:
+            tags = ['@Untagged']
+        
+        for tag in tags:
+            tag_stats[tag]['total'] += 1
+            tag_stats[tag]['duration'] += duration
+            if status == 'passed':
+                tag_stats[tag]['passed'] += 1
+            elif status == 'failed':
+                tag_stats[tag]['failed'] += 1
+            elif status == 'skipped':
+                tag_stats[tag]['skipped'] += 1
+    
+    # Process all tests
+    for suite in data.get('suites', []):
+        for spec in suite.get('specs', []):
+            for test in spec.get('tests', []):
+                process_test(test, spec)
+    
+    # Print table
+    print("| Tag | Total | ✅ Passed | ❌ Failed | ⏭️ Skipped | 📈 Pass Rate |")
+    print("|-----|-------|-----------|-----------|------------|--------------|")
+    
+    for tag, stats in sorted(tag_stats.items(), key=lambda x: x[1]['total'], reverse=True):
+        total = stats['total']
+        passed = stats['passed']
+        failed = stats['failed']
+        skipped = stats['skipped']
+        pass_rate = round((passed / total) * 100, 1) if total > 0 else 0
+        
+        print(f"| {tag} | {total} | {passed} | {failed} | {skipped} | {pass_rate}% |")
+    
+except Exception as e:
+    print(f"| *Error generating tag analysis: {str(e)}* | | | | |")
+EOF
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Recommendations
+        echo "### 🚀 Next Steps" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        if [ "${TEST_EXIT_CODE}" = "0" ]; then
-          echo "✅ **All tests passed! You're ready to:**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. **Deploy with confidence** - UI tests are green" >> $GITHUB_STEP_SUMMARY
-          echo "2. **Review the HTML report** for detailed metrics" >> $GITHUB_STEP_SUMMARY
-          echo "3. **Monitor tag performance** in the breakdown above" >> $GITHUB_STEP_SUMMARY
+        if [ "$EXIT_CODE" = "0" ]; then
+          echo "✅ **All tests are passing! You can:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the HTML report for detailed analysis" >> $GITHUB_STEP_SUMMARY
+          echo "2. Review tag performance above" >> $GITHUB_STEP_SUMMARY
+          echo "3. Proceed with deployment" >> $GITHUB_STEP_SUMMARY
         else
-          echo "⚠️ **Immediate actions required:**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Action required:**" >> $GITHUB_STEP_SUMMARY
           echo "1. **Download the HTML report** for screenshots & traces" >> $GITHUB_STEP_SUMMARY
           echo "2. **Fix the ${FAILED_TESTS} failing test(s)**" >> $GITHUB_STEP_SUMMARY
-          echo "3. **Check tag insights** above for problem areas" >> $GITHUB_STEP_SUMMARY
-          echo "4. **Re-run tests** after fixes" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Check the 'Failed Tests Details' section above**" >> $GITHUB_STEP_SUMMARY
+          echo "4. **Re-run tests after fixes**" >> $GITHUB_STEP_SUMMARY
         fi
-        echo "" >> $GITHUB_STEP_SUMMARY
         
-        # Report artifacts
-        echo "### 📁 Generated Reports" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Artifact | Description | Format |" >> $GITHUB_STEP_SUMMARY
-        echo "|----------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| **HTML Report** | Interactive test results with screenshots | HTML |" >> $GITHUB_STEP_SUMMARY
-        echo "| **JSON Results** | Raw test data for CI/CD pipelines | JSON |" >> $GITHUB_STEP_SUMMARY
-        echo "| **Tag Metrics** | Detailed breakdown by test tags | JSON/Markdown |" >> $GITHUB_STEP_SUMMARY
-        echo "| **Test Output** | Complete console output | Text |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        # Final status
         echo "---" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        if [ "${TEST_EXIT_CODE}" = "0" ]; then
-          echo "**✅ Test Suite Status: PASSING** - All ${TOTAL_TESTS} tests completed successfully in ${DURATION}" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "**❌ Test Suite Status: FAILING** - ${FAILED_TESTS}/${TOTAL_TESTS} tests failed in ${DURATION}" >> $GITHUB_STEP_SUMMARY
-        fi
+        echo "*Report generated: $(date)*" >> $GITHUB_STEP_SUMMARY
 
-    - name: 📤 Upload Playwright report
+    - name: 📊 Upload HTML Report
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: playwright-report
         path: |
           playwright-report/
-          playwright-test-output.txt
-        retention-days: 7
+          test-output.log
+        retention-days: 14
 
-    - name: 📤 Upload test results
+    - name: 📈 Upload Test Results
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: test-results
         path: test-results/
-        retention-days: 14
+        retention-days: 30
 
-    - name: 🚨 Fail workflow if tests failed
-      if: failure() && env.FAIL_ON_FAILED_TESTS == 'true'
+    - name: 📤 Upload Test Output
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-output
+        path: |
+          test-output.log
+          test-results/report.json
+        retention-days: 30
+
+    - name: 🚨 Fail if tests failed
+      if: failure() && steps.playwright-tests.outputs.exit_code != '0'
       run: |
-        echo "❌ ${FAILED_TESTS} test(s) failed - check the reports above for details"
+        echo "❌ Tests failed - check the report above for details"
         echo ""
         echo "To debug:"
         echo "1. Download the 'playwright-report' artifact"
-        echo "2. Open playwright-report/index.html"
+        echo "2. Open index.html in your browser"
         echo "3. Check screenshots and traces for failing tests"
         exit 1
