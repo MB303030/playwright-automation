@@ -1,0 +1,143 @@
+name: Test Runner
+
+on:
+  workflow_call:
+    inputs:
+      test_suite:
+        required: true
+        type: string
+      browser:
+        required: true
+        type: string
+      test_path:
+        required: true
+        type: string
+      run_id:
+        required: true
+        type: string
+
+env:
+  CI: true
+
+jobs:
+  run_playwright_tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: 🔍 Print Execution Details
+        run: |
+          echo "=== 🚀 TEST EXECUTION DETAILS ==="
+          echo "Test Suite: ${{ inputs.test_suite }}"
+          echo "Browser: ${{ inputs.browser }}"
+          echo "Test Path: ${{ inputs.test_path }}"
+          echo "Run ID: ${{ inputs.run_id }}"
+          echo "================================"
+          
+          # Show the exact test files that will run
+          echo ""
+          echo "📄 Test files to execute:"
+          find "${{ inputs.test_path }}" -name "*.spec.js" -type f 2>/dev/null || echo "No .spec.js files found"
+      
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: 📦 Install Dependencies
+        run: |
+          echo "📦 Installing dependencies..."
+          npm ci
+      
+      - name: 🔧 Install Playwright Browsers
+        run: |
+          echo "🔧 Installing Playwright browsers..."
+          npx playwright install --with-deps
+      
+      - name: 🧪 Run Playwright Tests
+        id: run_tests
+        continue-on-error: true
+        run: |
+          echo "=== 🧪 EXECUTING TESTS ==="
+          
+          # Map browser to Playwright project
+          if [ "${{ inputs.browser }}" = "chrome" ]; then
+            PROJECT="chromium"
+          elif [ "${{ inputs.browser }}" = "firefox" ]; then
+            PROJECT="firefox"
+          elif [ "${{ inputs.browser }}" = "webkit" ]; then
+            PROJECT="webkit"
+          else
+            PROJECT="chromium"
+          fi
+          
+          # Create directories
+          HTML_REPORT_DIR="./playwright-html-report/${{ inputs.run_id }}"
+          TEST_RESULTS_DIR="./test-results/${{ inputs.run_id }}"
+          
+          mkdir -p "$HTML_REPORT_DIR"
+          mkdir -p "$TEST_RESULTS_DIR"
+          
+          echo "📁 HTML Report: $HTML_REPORT_DIR"
+          echo "📁 Test Results: $TEST_RESULTS_DIR"
+          echo ""
+          echo "🔨 Command to execute:"
+          echo "npx playwright test \\"
+          echo "  \"${{ inputs.test_path }}\" \\"
+          echo "  --project=\"$PROJECT\" \\"
+          echo "  --reporter=html,line \\"
+          echo "  --output=\"$TEST_RESULTS_DIR\" \\"
+          echo "  --retries=1"
+          echo ""
+          
+          # Run the tests
+          set +e
+          npx playwright test \
+            "${{ inputs.test_path }}" \
+            --project="$PROJECT" \
+            --reporter=html,line \
+            --output="$TEST_RESULTS_DIR" \
+            --retries=1
+          TEST_EXIT_CODE=$?
+          set -e
+          
+          echo ""
+          echo "📊 Test execution completed!"
+          echo "Exit code: $TEST_EXIT_CODE"
+          
+          # Move HTML report to separate directory
+          if [ -d "$TEST_RESULTS_DIR/playwright-report" ]; then
+            echo "📄 Moving HTML report..."
+            mv "$TEST_RESULTS_DIR/playwright-report"/* "$HTML_REPORT_DIR/" 2>/dev/null || true
+          fi
+          
+          echo "exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+      
+      - name: 📦 Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.run_id }}
+          path: ./test-results/${{ inputs.run_id }}
+          retention-days: 7
+      
+      - name: 📦 Upload HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-html-report-${{ inputs.run_id }}
+          path: ./playwright-html-report/${{ inputs.run_id }}
+          retention-days: 7
+      
+      - name: 📊 Create Execution Summary
+        if: always()
+        run: |
+          echo "=== 📋 EXECUTION SUMMARY ==="
+          echo "Test Suite: ${{ inputs.test_suite }}"
+          echo "Browser: ${{ inputs.browser }}"
+          echo "Run ID: ${{ inputs.run_id }}"
+          echo "Exit Code: ${{ steps.run_tests.outputs.exit_code || 'N/A' }}"
+          echo "==========================="
