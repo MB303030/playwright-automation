@@ -1,0 +1,312 @@
+name: Report Generator
+
+on:
+  workflow_call:
+    inputs:
+      test_type:
+        required: true
+        type: string
+      test_suite:
+        required: true
+        type: string
+      browser:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      priority:
+        required: true
+        type: string
+      run_id:
+        required: true
+        type: string
+
+jobs:
+  generate_reports:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: 📥 Download Test Results
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results-${{ inputs.run_id }}
+          path: ./downloaded-results/
+      
+      - name: 📊 Read Test Results
+        id: read_results
+        run: |
+          echo "📊 Reading test results..."
+          
+          RESULTS_PATH="./downloaded-results/test-results/${{ inputs.run_id }}"
+          STATS_FILE="$RESULTS_PATH/statistics.json"
+          RESULTS_FILE="$RESULTS_PATH/results.json"
+          
+          if [ -f "$STATS_FILE" ]; then
+            echo "✅ Found statistics file"
+            
+            # Read values from JSON file
+            TOTAL_TESTS=$(jq -r '.total_tests // 0' "$STATS_FILE")
+            PASSED_TESTS=$(jq -r '.passed_tests // 0' "$STATS_FILE")
+            FAILED_TESTS=$(jq -r '.failed_tests // 0' "$STATS_FILE")
+            SKIPPED_TESTS=$(jq -r '.skipped_tests // 0' "$STATS_FILE")
+            DURATION=$(jq -r '.duration // 0' "$STATS_FILE")
+            SUCCESS_RATE=$(jq -r '.success_rate // 0' "$STATS_FILE")
+            
+            echo "📈 Statistics loaded successfully!"
+            
+          elif [ -f "$RESULTS_FILE" ]; then
+            echo "✅ Found results file, extracting statistics..."
+            
+            TOTAL_TESTS=$(jq -r '.total_tests // 0' "$RESULTS_FILE")
+            PASSED_TESTS=$(jq -r '.passed // 0' "$RESULTS_FILE")
+            FAILED_TESTS=$(jq -r '.failed // 0' "$RESULTS_FILE")
+            SKIPPED_TESTS=$(jq -r '.skipped // 0' "$RESULTS_FILE")
+            DURATION=$(jq -r '.duration // 0' "$RESULTS_FILE")
+            
+            if [ "$TOTAL_TESTS" -gt 0 ]; then
+              SUCCESS_RATE=$((PASSED_TESTS * 100 / TOTAL_TESTS))
+            else
+              SUCCESS_RATE=0
+            fi
+            
+          else
+            echo "⚠️ No results files found, using defaults"
+            TOTAL_TESTS=0
+            PASSED_TESTS=0
+            FAILED_TESTS=0
+            SKIPPED_TESTS=0
+            DURATION=0
+            SUCCESS_RATE=0
+          fi
+          
+          # Save as outputs for steps
+          echo "TOTAL_TESTS=$TOTAL_TESTS" >> $GITHUB_ENV
+          echo "PASSED_TESTS=$PASSED_TESTS" >> $GITHUB_ENV
+          echo "FAILED_TESTS=$FAILED_TESTS" >> $GITHUB_ENV
+          echo "SKIPPED_TESTS=$SKIPPED_TESTS" >> $GITHUB_ENV
+          echo "DURATION=$DURATION" >> $GITHUB_ENV
+          echo "SUCCESS_RATE=$SUCCESS_RATE" >> $GITHUB_ENV
+          
+          echo "📋 Final Statistics:"
+          echo "   Total Tests: $TOTAL_TESTS"
+          echo "   Passed: $PASSED_TESTS"
+          echo "   Failed: $FAILED_TESTS"
+          echo "   Skipped: $SKIPPED_TESTS"
+          echo "   Duration: $DURATION seconds"
+          echo "   Success Rate: $SUCCESS_RATE%"
+      
+      - name: 📈 Create Professional Dashboard
+        run: |
+          echo "🎨 Creating professional dashboard..."
+          
+          mkdir -p ./reports/${{ inputs.run_id }}
+          
+          # Create HTML dashboard with actual data
+          cat > ./reports/${{ inputs.run_id }}/dashboard.html << EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Test Dashboard - ${{ inputs.run_id }}</title>
+              <script src="https://cdn.tailwindcss.com"></script>
+              <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+              <style>
+                  body { font-family: 'Segoe UI', sans-serif; }
+                  .stat-card { transition: transform 0.3s; }
+                  .stat-card:hover { transform: translateY(-5px); }
+              </style>
+          </head>
+          <body class="bg-gray-50">
+              <div class="container mx-auto px-4 py-8">
+                  <h1 class="text-3xl font-bold text-gray-800 mb-2">🧪 Test Execution Dashboard</h1>
+                  <p class="text-gray-600 mb-8">Run ID: ${{ inputs.run_id }}</p>
+                  
+                  <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                      <div class="stat-card bg-white rounded-xl shadow p-6">
+                          <div class="text-3xl font-bold text-blue-600">$TOTAL_TESTS</div>
+                          <div class="text-gray-600">Total Tests</div>
+                      </div>
+                      <div class="stat-card bg-white rounded-xl shadow p-6">
+                          <div class="text-3xl font-bold text-green-600">$PASSED_TESTS</div>
+                          <div class="text-gray-600">Passed Tests</div>
+                      </div>
+                      <div class="stat-card bg-white rounded-xl shadow p-6">
+                          <div class="text-3xl font-bold text-red-600">$FAILED_TESTS</div>
+                          <div class="text-gray-600">Failed Tests</div>
+                      </div>
+                      <div class="stat-card bg-white rounded-xl shadow p-6">
+                          <div class="text-3xl font-bold text-purple-600">${SUCCESS_RATE}%</div>
+                          <div class="text-gray-600">Success Rate</div>
+                      </div>
+                  </div>
+                  
+                  <div class="bg-white rounded-xl shadow p-6 mb-8">
+                      <h2 class="text-xl font-bold text-gray-800 mb-4">Test Configuration</h2>
+                      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div>
+                              <div class="text-gray-500 text-sm">Test Type</div>
+                              <div class="font-medium">${{ inputs.test_type }}</div>
+                          </div>
+                          <div>
+                              <div class="text-gray-500 text-sm">Browser</div>
+                              <div class="font-medium">${{ inputs.browser }}</div>
+                          </div>
+                          <div>
+                              <div class="text-gray-500 text-sm">Environment</div>
+                              <div class="font-medium">${{ inputs.environment }}</div>
+                          </div>
+                          <div>
+                              <div class="text-gray-500 text-sm">Duration</div>
+                              <div class="font-medium">${DURATION}s</div>
+                          </div>
+                      </div>
+                  </div>
+                  
+                  <div class="bg-white rounded-xl shadow p-6">
+                      <h2 class="text-xl font-bold text-gray-800 mb-4">Detailed Results</h2>
+                      <table class="min-w-full">
+                          <thead>
+                              <tr class="border-b">
+                                  <th class="py-2 text-left">Metric</th>
+                                  <th class="py-2 text-left">Count</th>
+                                  <th class="py-2 text-left">Percentage</th>
+                              </tr>
+                          </thead>
+                          <tbody>
+                              <tr class="border-b">
+                                  <td class="py-3 text-green-600"><i class="fas fa-check mr-2"></i>Passed</td>
+                                  <td class="py-3 font-bold">$PASSED_TESTS</td>
+                                  <td class="py-3">$((PASSED_TESTS * 100 / TOTAL_TESTS))%</td>
+                              </tr>
+                              <tr class="border-b">
+                                  <td class="py-3 text-red-600"><i class="fas fa-times mr-2"></i>Failed</td>
+                                  <td class="py-3 font-bold">$FAILED_TESTS</td>
+                                  <td class="py-3">$((FAILED_TESTS * 100 / TOTAL_TESTS))%</td>
+                              </tr>
+                              <tr>
+                                  <td class="py-3 text-yellow-600"><i class="fas fa-forward mr-2"></i>Skipped</td>
+                                  <td class="py-3 font-bold">$SKIPPED_TESTS</td>
+                                  <td class="py-3">$((SKIPPED_TESTS * 100 / TOTAL_TESTS))%</td>
+                              </tr>
+                          </tbody>
+                      </table>
+                  </div>
+                  
+                  <div class="mt-8 text-center text-gray-500 text-sm">
+                      Generated on $(date) • Professional Test Runner v1.0
+                  </div>
+              </div>
+          </body>
+          </html>
+          EOF
+          
+          echo "✅ Dashboard created!"
+      
+      - name: 📋 Create Summary Report
+        run: |
+          echo "📋 Creating summary report..."
+          
+          cat > ./reports/${{ inputs.run_id }}/summary.md << EOF
+          # Test Execution Summary
+          
+          ## Run Information
+          - **Run ID:** ${{ inputs.run_id }}
+          - **Timestamp:** $(date)
+          - **Test Type:** ${{ inputs.test_type }}
+          - **Test Suite:** ${{ inputs.test_suite }}
+          - **Browser:** ${{ inputs.browser }}
+          - **Environment:** ${{ inputs.environment }}
+          - **Priority:** ${{ inputs.priority }}
+          
+          ## Results Summary
+          - **Total Tests:** $TOTAL_TESTS
+          - **Passed Tests:** $PASSED_TESTS
+          - **Failed Tests:** $FAILED_TESTS
+          - **Skipped Tests:** $SKIPPED_TESTS
+          - **Success Rate:** ${SUCCESS_RATE}%
+          - **Execution Time:** ${DURATION} seconds
+          
+          ## Status
+          $(if [ $FAILED_TESTS -eq 0 ]; then echo "✅ **ALL TESTS PASSED**"; else echo "❌ **$FAILED_TESTS TEST(S) FAILED**"; fi)
+          
+          ## Next Steps
+          1. Review failed tests in detailed reports
+          2. Check test artifacts for screenshots and logs
+          3. Download complete report package
+          
+          ---
+          *Generated by Professional Test Runner*
+          EOF
+          
+          echo "✅ Summary report created!"
+      
+      - name: 📦 Package Final Report
+        run: |
+          echo "📦 Packaging final report..."
+          
+          # Copy any additional files from test results
+          if [ -d "./downloaded-results/test-results/${{ inputs.run_id }}" ]; then
+            cp -r ./downloaded-results/test-results/${{ inputs.run_id }}/* ./reports/${{ inputs.run_id }}/ 2>/dev/null || true
+          fi
+          
+          # Create a manifest file
+          cat > ./reports/${{ inputs.run_id }}/MANIFEST.txt << EOF
+          Report Package for Run: ${{ inputs.run_id }}
+          ========================================
+          
+          Files included:
+          1. dashboard.html - Interactive dashboard
+          2. summary.md - Executive summary
+          3. statistics.json - Raw statistics
+          4. results.json - Detailed test results
+          
+          Generated: $(date)
+          Total size: $(du -sh ./reports/${{ inputs.run_id }} | cut -f1)
+          EOF
+      
+      - name: 📤 Upload Final Report Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-report-${{ inputs.run_id }}
+          path: ./reports/${{ inputs.run_id }}
+          retention-days: 30
+      
+      - name: 📢 Create GitHub Actions Summary
+        run: |
+          echo "## 🎉 Test Execution Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Test Run: ${{ inputs.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Test Configuration:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Type: ${{ inputs.test_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Suite: ${{ inputs.test_suite }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Browser: ${{ inputs.browser }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Priority: ${{ inputs.priority }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "**📊 Test Results:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Total Tests: **$TOTAL_TESTS**" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Passed: **$PASSED_TESTS**" >> $GITHUB_STEP_SUMMARY
+          echo "- ❌ Failed: **$FAILED_TESTS**" >> $GITHUB_STEP_SUMMARY
+          echo "- ⏭️ Skipped: **$SKIPPED_TESTS**" >> $GITHUB_STEP_SUMMARY
+          echo "- 📈 Success Rate: **${SUCCESS_RATE}%**" >> $GITHUB_STEP_SUMMARY
+          echo "- ⏱️ Duration: **${DURATION} seconds**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ $FAILED_TESTS -eq 0 ]; then
+            echo "### 🎯 **STATUS: ALL TESTS PASSED** 🎯" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ **STATUS: $FAILED_TESTS TEST(S) FAILED**" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Download Reports" >> $GITHUB_STEP_SUMMARY
+          echo "Download the **\`final-report-${{ inputs.run_id }}\`** artifact for:" >> $GITHUB_STEP_SUMMARY
+          echo "- Interactive Dashboard (dashboard.html)" >> $GITHUB_STEP_SUMMARY
+          echo "- Detailed Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Screenshots and Logs" >> $GITHUB_STEP_SUMMARY
