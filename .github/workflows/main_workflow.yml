@@ -8,21 +8,21 @@ on:
         required: true
         type: choice
         options:
+        - All Tests
         - Web Tests
         - Mobile Tests
         - Performance Tests
         - Security Tests  # Added
-        - All Tests
       test_suite:
         description: '📂 Which test suite?'
         required: false
         type: choice
         options:
+        - All
         - Smoke
         - Sanity
         - Regression
         - Negative
-        - All
         default: 'All'
       browser:
         description: '🌐 Browser to use'
