@@ -1,33 +1,64 @@
-name: Run Playwright Tests
+name: main
 
 on:
   workflow_dispatch:
     inputs:
       test_suite:
-        description: '📂 Which test suite to run?'
+        description: '📂 Test suite (directory)'
         required: true
         type: choice
         options:
-        - All Tests
         - Smoke
         - Regression
         - Sanity
         - Negative
+        - All Tests
         default: 'Smoke'
       project:
-        description: '⚙️ Which Playwright project to use?'
+        description: '⚙️ Browser/project to use'
         required: true
         type: choice
         options:
         - chrome
+        - chrome-headless
         - firefox
+        - safari
         - mobile-chrome
         - mobile-safari
+        - All Browsers
         default: 'chrome'
+      environment:
+        description: '🌐 Test environment'
+        required: false
+        type: choice
+        options:
+        - development
+        - staging
+        - production
+        default: 'development'
+      tags:
+        description: '🏷️ Test tags (comma-separated, e.g., @smoke,@critical)'
+        required: false
+        type: string
+        default: ''
+      grep:
+        description: '🔍 Grep filter (regular expression)'
+        required: false
+        type: string
+        default: ''
+      headful:
+        description: '👀 Run in headful mode (non-headless)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   run_tests:
     runs-on: ubuntu-latest
+    
+    env:
+      ENVIRONMENT: ${{ github.event.inputs.environment }}
+      HEADLESS: ${{ !github.event.inputs.headful && 'true' || 'false' }}
     
     steps:
       - name: 📥 Checkout code
@@ -37,14 +68,17 @@ jobs:
         run: |
           echo "=== 🎯 SELECTED OPTIONS ==="
           echo "Test Suite: ${{ github.event.inputs.test_suite }}"
-          echo "Playwright Project: ${{ github.event.inputs.project }}"
+          echo "Project: ${{ github.event.inputs.project }}"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Tags: ${{ github.event.inputs.tags }}"
+          echo "Grep: ${{ github.event.inputs.grep }}"
+          echo "Headful: ${{ github.event.inputs.headful }}"
           echo "==========================="
       
       - name: 📂 Check Test Directory
         run: |
           echo "=== 📁 CHECKING TEST FILES ==="
           
-          # Determine test path based on selection
           if [ "${{ github.event.inputs.test_suite }}" = "All Tests" ]; then
             TEST_PATH="./tests/web"
             echo "Running ALL tests from: $TEST_PATH"
@@ -53,11 +87,10 @@ jobs:
             echo "Running ${{ github.event.inputs.test_suite }} tests from: $TEST_PATH"
           fi
           
-          # Check if directory exists
           if [ ! -d "$TEST_PATH" ]; then
             echo "❌ ERROR: Directory '$TEST_PATH' does not exist!"
             echo ""
-            echo "Available directories in ./tests/:"
+            echo "Available directories:"
             find ./tests -type d -name "*" | sort
             exit 1
           fi
@@ -65,7 +98,7 @@ jobs:
           echo "✅ Directory exists!"
           echo ""
           echo "📄 Test files found:"
-          find "$TEST_PATH" -name "*.spec.js" -type f 2>/dev/null || echo "No .spec.js files found"
+          find "$TEST_PATH" -name "*.spec.js" -type f 2>/dev/null | head -20 || echo "No .spec.js files found"
       
       - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
@@ -95,14 +128,50 @@ jobs:
             TEST_PATH="./tests/web/${{ github.event.inputs.test_suite }}"
           fi
           
-          PROJECT="${{ github.event.inputs.project }}"
-          
           echo "Test Path: $TEST_PATH"
-          echo "Project: $PROJECT"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Headless: $HEADLESS"
+          
+          # Build the command
+          CMD="npx playwright test \"$TEST_PATH\""
+          
+          # Add project if not "All Browsers"
+          if [ "${{ github.event.inputs.project }}" != "All Browsers" ]; then
+            CMD="$CMD --project=\"${{ github.event.inputs.project }}\""
+            echo "Project: ${{ github.event.inputs.project }}"
+          else
+            echo "Project: Running on ALL browsers in parallel"
+          fi
+          
+          # Add tags if specified
+          if [ -n "${{ github.event.inputs.tags }}" ]; then
+            # Convert comma-separated tags to grep pattern
+            TAGS=$(echo "${{ github.event.inputs.tags }}" | sed 's/,/|/g')
+            CMD="$CMD --grep=\"$TAGS\""
+            echo "Tags: $TAGS"
+          fi
+          
+          # Add grep filter if specified
+          if [ -n "${{ github.event.inputs.grep }}" ]; then
+            CMD="$CMD --grep=\"${{ github.event.inputs.grep }}\""
+            echo "Grep filter: ${{ github.event.inputs.grep }}"
+          fi
+          
+          # Add headful mode if requested
+          if [ "$HEADLESS" = "false" ]; then
+            CMD="$CMD --headed"
+            echo "Mode: Headful (non-headless)"
+          else
+            echo "Mode: Headless"
+          fi
+          
+          echo ""
+          echo "🔨 Command to execute:"
+          echo "$CMD"
           echo ""
           
-          # Run the tests using the project name from your config
-          npx playwright test "$TEST_PATH" --project="$PROJECT"
+          # Execute the command
+          eval $CMD
           
           echo ""
           echo "✅ Test execution completed!"
@@ -111,8 +180,16 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}
+          name: playwright-report-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}-${{ github.event.inputs.environment }}
           path: ./playwright-report
+          retention-days: 7
+      
+      - name: 📦 Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}
+          path: ./test-results
           retention-days: 7
       
       - name: 📊 Create Results Summary
@@ -124,18 +201,26 @@ jobs:
           echo "**Test Configuration:**" >> $GITHUB_STEP_SUMMARY
           echo "- **Test Suite:** ${{ github.event.inputs.test_suite }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Project:** ${{ github.event.inputs.project }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -n "${{ github.event.inputs.tags }}" ]; then
+            echo "- **Tags:** ${{ github.event.inputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -n "${{ github.event.inputs.grep }}" ]; then
+            echo "- **Grep Filter:** ${{ github.event.inputs.grep }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "- **Headful Mode:** ${{ github.event.inputs.headful }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          echo "**📥 Download HTML Report:**" >> $GITHUB_STEP_SUMMARY
+          echo "**📥 Download Reports:**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "1. Download the artifact: **playwright-report-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}**" >> $GITHUB_STEP_SUMMARY
+          echo "1. **HTML Report:** playwright-report-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}-${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Raw Results:** test-results-${{ github.event.inputs.test_suite }}-${{ github.event.inputs.project }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "**How to view:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the HTML report artifact" >> $GITHUB_STEP_SUMMARY
           echo "2. Extract the ZIP file" >> $GITHUB_STEP_SUMMARY
-          echo "3. Open **index.html** in your web browser" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "**📊 Report includes:**" >> $GITHUB_STEP_SUMMARY
-          echo "- Test execution results" >> $GITHUB_STEP_SUMMARY
-          echo "- Pass/fail statistics" >> $GITHUB_STEP_SUMMARY
-          echo "- Screenshots for failed tests" >> $GITHUB_STEP_SUMMARY
-          echo "- Execution timeline" >> $GITHUB_STEP_SUMMARY
-          echo "- Trace viewer for debugging" >> $GITHUB_STEP_SUMMARY
+          echo "3. Open **index.html** in your browser" >> $GITHUB_STEP_SUMMARY
