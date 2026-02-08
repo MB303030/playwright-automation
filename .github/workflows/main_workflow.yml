@@ -108,6 +108,7 @@ jobs:
 
   generate_reports:
     needs: execute_tests
+    if: always()  # 👈 CRITICAL: Run even if tests fail
     uses: ./.github/workflows/report_generator.yml
     with:
       test_type: ${{ github.event.inputs.test_type }}
