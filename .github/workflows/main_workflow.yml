@@ -12,7 +12,8 @@ on:
         - Web Tests
         - Mobile Tests
         - Performance Tests
-        - Security Tests  # Added
+        - Security Tests
+        - All Tests
       test_suite:
         description: '📂 Which test suite?'
         required: false
@@ -75,28 +76,37 @@ jobs:
           TEST_TYPE="${{ github.event.inputs.test_type }}"
           TEST_SUITE="${{ github.event.inputs.test_suite }}"
           
+          # Map based on ACTUAL project structure from your project-paths.txt
           if [ "$TEST_TYPE" = "Web Tests" ]; then
-            BASE_PATH="./tests/web"
             if [ "$TEST_SUITE" = "Smoke" ]; then
               TEST_PATH="./tests/Smoke"
-            elif [ "$TEST_SUITE" != "All" ]; then
-              TEST_PATH="$BASE_PATH/$TEST_SUITE"
-            else
-              TEST_PATH="$BASE_PATH"
+            elif [ "$TEST_SUITE" = "Sanity" ]; then
+              TEST_PATH="./tests/web/Sanity"
+            elif [ "$TEST_SUITE" = "Regression" ]; then
+              TEST_PATH="./tests/web/Regression"
+            elif [ "$TEST_SUITE" = "Negative" ]; then
+              TEST_PATH="./tests/web/Negative"
+            else  # All
+              TEST_PATH="./tests/web"
             fi
-            
+          
           elif [ "$TEST_TYPE" = "Mobile Tests" ]; then
-            BASE_PATH="./tests/mobile"
-            # Mobile doesn't have suite subdirectories
-            TEST_PATH="$BASE_PATH"
-            
+            if [ "$TEST_SUITE" = "Smoke" ]; then
+              TEST_PATH="./tests/mobile/Smoke"
+            elif [ "$TEST_SUITE" = "Sanity" ]; then
+              TEST_PATH="./tests/mobile/Sanity"
+            elif [ "$TEST_SUITE" = "Regression" ]; then
+              TEST_PATH="./tests/mobile/Regression"
+            else  # All
+              TEST_PATH="./tests/mobile"
+            fi
+          
           elif [ "$TEST_TYPE" = "Performance Tests" ]; then
-            # Correct path based on your structure
-            TEST_PATH="./tests/mobile/performance"
-            
+            TEST_PATH="./tests/performance"
+          
           elif [ "$TEST_TYPE" = "Security Tests" ]; then
             TEST_PATH="./tests/security"
-            
+          
           else  # All Tests
             TEST_PATH="./tests"
           fi
