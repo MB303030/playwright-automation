@@ -1,4 +1,4 @@
-name: Report Generator
+name: Test Runner
 
 on:
   workflow_call:
@@ -15,78 +15,109 @@ on:
       environment:
         required: true
         type: string
+      custom_tags:
+        required: false
+        type: string
+        default: ''
       priority:
+        required: true
+        type: string
+      test_path:
         required: true
         type: string
       run_id:
         required: true
         type: string
 
+env:
+  CI: true
+
 jobs:
-  generate_reports:
+  run_tests:
     runs-on: ubuntu-latest
     
     steps:
-      - name: 📥 Download Playwright HTML Report
-        uses: actions/download-artifact@v4
-        with:
-          name: playwright-html-report-${{ inputs.run_id }}
-          path: ./downloaded-report
-        continue-on-error: true
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
       
-      - name: 📥 Download Test Results
-        uses: actions/download-artifact@v4
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          name: test-results-${{ inputs.run_id }}
-          path: ./downloaded-results
-        continue-on-error: true
+          node-version: '18'
+          cache: 'npm'
       
-      - name: 📊 Create GitHub Summary
+      - name: 📦 Install dependencies
         run: |
-          echo "## 🧪 Playwright Test Execution" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Run ID:** ${{ inputs.run_id }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Test Type:** ${{ inputs.test_type }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Test Suite:** ${{ inputs.test_suite }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Browser:** ${{ inputs.browser }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Priority:** ${{ inputs.priority }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ -d "./downloaded-report" ]; then
-            echo "✅ **Playwright HTML Report is available**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "Download the **playwright-html-report-${{ inputs.run_id }}** artifact to view the full interactive report." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "To view the report:" >> $GITHUB_STEP_SUMMARY
-            echo "1. Download the artifact" >> $GITHUB_STEP_SUMMARY
-            echo "2. Extract the files" >> $GITHUB_STEP_SUMMARY
-            echo "3. Open `index.html` in a web browser" >> $GITHUB_STEP_SUMMARY
+          echo "📦 Installing dependencies..."
+          if [ -f "package.json" ]; then
+            npm ci
           else
-            echo "⚠️ **No Playwright HTML report found**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The test execution might have failed before generating a report." >> $GITHUB_STEP_SUMMARY
+            echo "❌ Error: No package.json found!"
+            exit 1
           fi
       
-      - name: 📋 Create Simple Summary
+      - name: 🔧 Install Playwright Browsers
         run: |
-          echo "Test Execution Summary" > summary.txt
-          echo "=====================" >> summary.txt
-          echo "" >> summary.txt
-          echo "Run ID: ${{ inputs.run_id }}" >> summary.txt
-          echo "Type: ${{ inputs.test_type }}" >> summary.txt
-          echo "Suite: ${{ inputs.test_suite }}" >> summary.txt
-          echo "Browser: ${{ inputs.browser }}" >> summary.txt
-          echo "Environment: ${{ inputs.environment }}" >> summary.txt
-          echo "" >> summary.txt
-          echo "Report: Download the 'playwright-html-report-${{ inputs.run_id }}' artifact" >> summary.txt
-          
-          mkdir -p ./reports/${{ inputs.run_id }}
-          cp summary.txt ./reports/${{ inputs.run_id }}/
+          echo "🔧 Installing Playwright browsers..."
+          npx playwright install --with-deps
       
-      - name: 📤 Upload Summary
+      - name: 🧪 Run Playwright Tests
+        id: run_playwright
+        continue-on-error: true
+        run: |
+          echo "🚀 Running Playwright tests..."
+          echo "📂 Test path: ${{ inputs.test_path }}"
+          echo "🌐 Browser: ${{ inputs.browser }}"
+          
+          # Check if test path exists
+          if [ ! -d "${{ inputs.test_path }}" ] && [ ! -f "${{ inputs.test_path }}" ]; then
+            echo "❌ Error: Test path '${{ inputs.test_path }}' does not exist."
+            echo "📋 Available test directories:"
+            find ./tests -type d -name "*.spec.js" -o -name "*.test.js" 2>/dev/null || true
+            exit 1
+          fi
+          
+          # Map browser name to Playwright project name
+          if [ "${{ inputs.browser }}" = "chrome" ]; then
+            PROJECT="chromium"
+          elif [ "${{ inputs.browser }}" = "firefox" ]; then
+            PROJECT="firefox"
+          elif [ "${{ inputs.browser }}" = "webkit" ]; then
+            PROJECT="webkit"
+          else
+            PROJECT="${{ inputs.browser }}"
+          fi
+          
+          # Create unique directories for this run
+          HTML_REPORT_DIR="./playwright-html-report/${{ inputs.run_id }}"
+          TEST_RESULTS_DIR="./test-results/${{ inputs.run_id }}"
+          
+          mkdir -p $HTML_REPORT_DIR
+          mkdir -p $TEST_RESULTS_DIR
+          
+          echo "📁 HTML Report: $HTML_REPORT_DIR"
+          echo "📁 Test Results: $TEST_RESULTS_DIR"
+          
+          # Run Playwright tests
+          npx playwright test \
+            "${{ inputs.test_path }}" \
+            --project="$PROJECT" \
+            --reporter=html,line \
+            --output="$TEST_RESULTS_DIR" \
+            --retries=1
+      
+      - name: 📦 Upload Playwright HTML Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: report-summary-${{ inputs.run_id }}
-          path: ./reports/${{ inputs.run_id }}
-          retention-days: 30
+          name: playwright-html-report-${{ inputs.run_id }}
+          path: ./playwright-html-report/${{ inputs.run_id }}
+          retention-days: 7
+      
+      - name: 📦 Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.run_id }}
+          path: ./test-results/${{ inputs.run_id }}
+          retention-days: 7
