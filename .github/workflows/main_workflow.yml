@@ -1,4 +1,4 @@
-name: Professional Test Runner
+name: main
 
 on:
   workflow_dispatch:
