@@ -25,6 +25,7 @@ on:
 jobs:
   generate_reports:
     runs-on: ubuntu-latest
+    
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
@@ -34,11 +35,12 @@ jobs:
         with:
           name: test-results-${{ inputs.run_id }}
           path: ./downloaded-results/
+        continue-on-error: true  # Continue even if download fails
       
-      - name: 📊 Read Test Results
+      - name: 📊 Read or Create Test Results
         id: read_results
         run: |
-          echo "📊 Reading test results..."
+          echo "📊 Processing test results..."
           
           STATS_FILE="./downloaded-results/test-results/${{ inputs.run_id }}/statistics.json"
           RESULTS_FILE="./downloaded-results/test-results/${{ inputs.run_id }}/results.json"
@@ -46,22 +48,24 @@ jobs:
           if [ -f "$STATS_FILE" ]; then
             echo "✅ Found statistics file"
             
-            # Read values from JSON file using grep (no jq dependency)
+            # Read values from JSON file using grep
             TOTAL_TESTS=$(grep -o '"total_tests"[[:space:]]*:[[:space:]]*[0-9]*' "$STATS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
             PASSED_TESTS=$(grep -o '"passed_tests"[[:space:]]*:[[:space:]]*[0-9]*' "$STATS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
             FAILED_TESTS=$(grep -o '"failed_tests"[[:space:]]*:[[:space:]]*[0-9]*' "$STATS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
             SKIPPED_TESTS=$(grep -o '"skipped_tests"[[:space:]]*:[[:space:]]*[0-9]*' "$STATS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
+            DURATION=$(grep -o '"duration"[[:space:]]*:[[:space:]]*[0-9]*' "$STATS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
             SUCCESS_RATE=$(grep -o '"success_rate"[[:space:]]*:[[:space:]]*[0-9]*' "$STATS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
             
-            echo "📈 Statistics loaded successfully!"
+            echo "📈 Statistics loaded from file"
             
           elif [ -f "$RESULTS_FILE" ]; then
-            echo "✅ Found results file, extracting statistics..."
+            echo "✅ Found results file"
             
             TOTAL_TESTS=$(grep -o '"total_tests"[[:space:]]*:[[:space:]]*[0-9]*' "$RESULTS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
             PASSED_TESTS=$(grep -o '"passed"[[:space:]]*:[[:space:]]*[0-9]*' "$RESULTS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
             FAILED_TESTS=$(grep -o '"failed"[[:space:]]*:[[:space:]]*[0-9]*' "$RESULTS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
             SKIPPED_TESTS=$(grep -o '"skipped"[[:space:]]*:[[:space:]]*[0-9]*' "$RESULTS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
+            DURATION=$(grep -o '"duration"[[:space:]]*:[[:space:]]*[0-9]*' "$RESULTS_FILE" | head -1 | grep -o '[0-9]*' || echo "0")
             
             if [ "$TOTAL_TESTS" -gt 0 ]; then
               SUCCESS_RATE=$((PASSED_TESTS * 100 / TOTAL_TESTS))
@@ -69,12 +73,15 @@ jobs:
               SUCCESS_RATE=0
             fi
             
+            echo "📈 Statistics extracted from results"
+            
           else
-            echo "⚠️ No results files found, using defaults"
+            echo "⚠️ No results files found, creating default statistics"
             TOTAL_TESTS=0
             PASSED_TESTS=0
-            FAILED_TESTS=0
+            FAILED_TESTS=1
             SKIPPED_TESTS=0
+            DURATION=0
             SUCCESS_RATE=0
           fi
           
@@ -89,22 +96,24 @@ jobs:
             SKIPPED_PERCENT=0
           fi
           
+          # Save to environment variables
+          echo "TOTAL_TESTS=$TOTAL_TESTS" >> $GITHUB_ENV
+          echo "PASSED_TESTS=$PASSED_TESTS" >> $GITHUB_ENV
+          echo "FAILED_TESTS=$FAILED_TESTS" >> $GITHUB_ENV
+          echo "SKIPPED_TESTS=$SKIPPED_TESTS" >> $GITHUB_ENV
+          echo "DURATION=$DURATION" >> $GITHUB_ENV
+          echo "SUCCESS_RATE=$SUCCESS_RATE" >> $GITHUB_ENV
+          echo "PASSED_PERCENT=$PASSED_PERCENT" >> $GITHUB_ENV
+          echo "FAILED_PERCENT=$FAILED_PERCENT" >> $GITHUB_ENV
+          echo "SKIPPED_PERCENT=$SKIPPED_PERCENT" >> $GITHUB_ENV
+          
           echo "📋 Final Statistics:"
           echo "   Total Tests: $TOTAL_TESTS"
           echo "   Passed: $PASSED_TESTS ($PASSED_PERCENT%)"
           echo "   Failed: $FAILED_TESTS ($FAILED_PERCENT%)"
           echo "   Skipped: $SKIPPED_TESTS ($SKIPPED_PERCENT%)"
           echo "   Success Rate: $SUCCESS_RATE%"
-          
-          # Save to environment variables
-          echo "TOTAL_TESTS=$TOTAL_TESTS" >> $GITHUB_ENV
-          echo "PASSED_TESTS=$PASSED_TESTS" >> $GITHUB_ENV
-          echo "FAILED_TESTS=$FAILED_TESTS" >> $GITHUB_ENV
-          echo "SKIPPED_TESTS=$SKIPPED_TESTS" >> $GITHUB_ENV
-          echo "SUCCESS_RATE=$SUCCESS_RATE" >> $GITHUB_ENV
-          echo "PASSED_PERCENT=$PASSED_PERCENT" >> $GITHUB_ENV
-          echo "FAILED_PERCENT=$FAILED_PERCENT" >> $GITHUB_ENV
-          echo "SKIPPED_PERCENT=$SKIPPED_PERCENT" >> $GITHUB_ENV
+          echo "   Duration: $DURATION seconds"
       
       - name: 📈 Create Professional Dashboard
         run: |
@@ -112,101 +121,81 @@ jobs:
           
           mkdir -p ./reports/${{ inputs.run_id }}
           
-          # Create HTML dashboard WITHOUT EOF issues
+          # Create HTML dashboard with simple echo statements
           {
             echo '<!DOCTYPE html>'
             echo '<html lang="en">'
             echo '<head>'
             echo '    <meta charset="UTF-8">'
             echo '    <meta name="viewport" content="width=device-width, initial-scale=1.0">'
-            echo '    <title>Test Dashboard - ${{ inputs.run_id }}</title>'
-            echo '    <script src="https://cdn.tailwindcss.com"></script>'
-            echo '    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">'
+            echo '    <title>Test Dashboard - '"${{ inputs.run_id }}"'</title>'
             echo '    <style>'
-            echo '        body { font-family: "Segoe UI", sans-serif; }'
-            echo '        .stat-card { transition: transform 0.3s; }'
-            echo '        .stat-card:hover { transform: translateY(-5px); }'
+            echo '        body { font-family: Arial, sans-serif; margin: 40px; }'
+            echo '        .card { background: white; border-radius: 10px; padding: 20px; margin: 20px 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }'
+            echo '        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }'
+            echo '        .stat { text-align: center; padding: 20px; border-radius: 8px; }'
+            echo '        .total { background: #e3f2fd; }'
+            echo '        .passed { background: #e8f5e9; color: #2e7d32; }'
+            echo '        .failed { background: #ffebee; color: #c62828; }'
+            echo '        .rate { background: #f3e5f5; color: #6a1b9a; }'
+            echo '        .number { font-size: 2.5em; font-weight: bold; display: block; }'
+            echo '        .label { font-size: 0.9em; color: #666; }'
+            echo '        table { width: 100%; border-collapse: collapse; }'
+            echo '        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }'
+            echo '        th { background: #f5f5f5; }'
+            echo '        .success { color: green; }'
+            echo '        .error { color: red; }'
+            echo '        .warning { color: orange; }'
             echo '    </style>'
             echo '</head>'
-            echo '<body class="bg-gray-50">'
-            echo '    <div class="container mx-auto px-4 py-8">'
-            echo '        <h1 class="text-3xl font-bold text-gray-800 mb-2">🧪 Test Execution Dashboard</h1>'
-            echo '        <p class="text-gray-600 mb-8">Run ID: ${{ inputs.run_id }}</p>'
-            echo '        '
-            echo '        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">'
-            echo '            <div class="stat-card bg-white rounded-xl shadow p-6">'
-            echo '                <div class="text-3xl font-bold text-blue-600">'$TOTAL_TESTS'</div>'
-            echo '                <div class="text-gray-600">Total Tests</div>'
-            echo '            </div>'
-            echo '            <div class="stat-card bg-white rounded-xl shadow p-6">'
-            echo '                <div class="text-3xl font-bold text-green-600">'$PASSED_TESTS'</div>'
-            echo '                <div class="text-gray-600">Passed Tests</div>'
-            echo '            </div>'
-            echo '            <div class="stat-card bg-white rounded-xl shadow p-6">'
-            echo '                <div class="text-3xl font-bold text-red-600">'$FAILED_TESTS'</div>'
-            echo '                <div class="text-gray-600">Failed Tests</div>'
-            echo '            </div>'
-            echo '            <div class="stat-card bg-white rounded-xl shadow p-6">'
-            echo '                <div class="text-3xl font-bold text-purple-600">'$SUCCESS_RATE'%</div>'
-            echo '                <div class="text-gray-600">Success Rate</div>'
-            echo '            </div>'
+            echo '<body>'
+            echo '    <h1>🧪 Test Execution Dashboard</h1>'
+            echo '    <p>Run ID: '"${{ inputs.run_id }}"'</p>'
+            echo '    '
+            echo '    <div class="stats">'
+            echo '        <div class="stat total">'
+            echo '            <span class="number">'"$TOTAL_TESTS"'</span>'
+            echo '            <span class="label">Total Tests</span>'
             echo '        </div>'
-            echo '        '
-            echo '        <div class="bg-white rounded-xl shadow p-6 mb-8">'
-            echo '            <h2 class="text-xl font-bold text-gray-800 mb-4">Test Configuration</h2>'
-            echo '            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">'
-            echo '                <div>'
-            echo '                    <div class="text-gray-500 text-sm">Test Type</div>'
-            echo '                    <div class="font-medium">${{ inputs.test_type }}</div>'
-            echo '                </div>'
-            echo '                <div>'
-            echo '                    <div class="text-gray-500 text-sm">Browser</div>'
-            echo '                    <div class="font-medium">${{ inputs.browser }}</div>'
-            echo '                </div>'
-            echo '                <div>'
-            echo '                    <div class="text-gray-500 text-sm">Environment</div>'
-            echo '                    <div class="font-medium">${{ inputs.environment }}</div>'
-            echo '                </div>'
-            echo '                <div>'
-            echo '                    <div class="text-gray-500 text-sm">Priority</div>'
-            echo '                    <div class="font-medium">${{ inputs.priority }}</div>'
-            echo '                </div>'
-            echo '            </div>'
+            echo '        <div class="stat passed">'
+            echo '            <span class="number">'"$PASSED_TESTS"'</span>'
+            echo '            <span class="label">Passed Tests</span>'
             echo '        </div>'
-            echo '        '
-            echo '        <div class="bg-white rounded-xl shadow p-6">'
-            echo '            <h2 class="text-xl font-bold text-gray-800 mb-4">Detailed Results</h2>'
-            echo '            <table class="min-w-full">'
-            echo '                <thead>'
-            echo '                    <tr class="border-b">'
-            echo '                        <th class="py-2 text-left">Metric</th>'
-            echo '                        <th class="py-2 text-left">Count</th>'
-            echo '                        <th class="py-2 text-left">Percentage</th>'
-            echo '                    </tr>'
-            echo '                </thead>'
-            echo '                <tbody>'
-            echo '                    <tr class="border-b">'
-            echo '                        <td class="py-3 text-green-600"><i class="fas fa-check mr-2"></i>Passed</td>'
-            echo '                        <td class="py-3 font-bold">'$PASSED_TESTS'</td>'
-            echo '                        <td class="py-3">'$PASSED_PERCENT'%</td>'
-            echo '                    </tr>'
-            echo '                    <tr class="border-b">'
-            echo '                        <td class="py-3 text-red-600"><i class="fas fa-times mr-2"></i>Failed</td>'
-            echo '                        <td class="py-3 font-bold">'$FAILED_TESTS'</td>'
-            echo '                        <td class="py-3">'$FAILED_PERCENT'%</td>'
-            echo '                    </tr>'
-            echo '                    <tr>'
-            echo '                        <td class="py-3 text-yellow-600"><i class="fas fa-forward mr-2"></i>Skipped</td>'
-            echo '                        <td class="py-3 font-bold">'$SKIPPED_TESTS'</td>'
-            echo '                        <td class="py-3">'$SKIPPED_PERCENT'%</td>'
-            echo '                    </tr>'
-            echo '                </tbody>'
-            echo '            </table>'
+            echo '        <div class="stat failed">'
+            echo '            <span class="number">'"$FAILED_TESTS"'</span>'
+            echo '            <span class="label">Failed Tests</span>'
             echo '        </div>'
-            echo '        '
-            echo '        <div class="mt-8 text-center text-gray-500 text-sm">'
-            echo '            Generated on $(date) • Professional Test Runner v1.0'
+            echo '        <div class="stat rate">'
+            echo '            <span class="number">'"$SUCCESS_RATE"'%</span>'
+            echo '            <span class="label">Success Rate</span>'
             echo '        </div>'
+            echo '    </div>'
+            echo '    '
+            echo '    <div class="card">'
+            echo '        <h2>Test Configuration</h2>'
+            echo '        <table>'
+            echo '            <tr><th>Parameter</th><th>Value</th></tr>'
+            echo '            <tr><td>Test Type</td><td>'"${{ inputs.test_type }}"'</td></tr>'
+            echo '            <tr><td>Test Suite</td><td>'"${{ inputs.test_suite }}"'</td></tr>'
+            echo '            <tr><td>Browser</td><td>'"${{ inputs.browser }}"'</td></tr>'
+            echo '            <tr><td>Environment</td><td>'"${{ inputs.environment }}"'</td></tr>'
+            echo '            <tr><td>Priority</td><td>'"${{ inputs.priority }}"'</td></tr>'
+            echo '            <tr><td>Duration</td><td>'"$DURATION"' seconds</td></tr>'
+            echo '        </table>'
+            echo '    </div>'
+            echo '    '
+            echo '    <div class="card">'
+            echo '        <h2>Detailed Results</h2>'
+            echo '        <table>'
+            echo '            <tr><th>Status</th><th>Count</th><th>Percentage</th></tr>'
+            echo '            <tr><td class="success">✅ Passed</td><td>'"$PASSED_TESTS"'</td><td>'"$PASSED_PERCENT"'%</td></tr>'
+            echo '            <tr><td class="error">❌ Failed</td><td>'"$FAILED_TESTS"'</td><td>'"$FAILED_PERCENT"'%</td></tr>'
+            echo '            <tr><td class="warning">⏭️ Skipped</td><td>'"$SKIPPED_TESTS"'</td><td>'"$SKIPPED_PERCENT"'%</td></tr>'
+            echo '        </table>'
+            echo '    </div>'
+            echo '    '
+            echo '    <div style="margin-top: 30px; color: #666; font-size: 0.9em; text-align: center;">'
+            echo '        Generated on '"$(date)"' • Professional Test Runner v1.0'
             echo '    </div>'
             echo '</body>'
             echo '</html>'
@@ -218,6 +207,9 @@ jobs:
         run: |
           echo "📋 Creating summary report..."
           
+          mkdir -p ./reports/${{ inputs.run_id }}
+          
+          # Create summary markdown file
           {
             echo "# Test Execution Summary"
             echo ""
@@ -236,44 +228,28 @@ jobs:
             echo "- **Failed Tests:** $FAILED_TESTS"
             echo "- **Skipped Tests:** $SKIPPED_TESTS"
             echo "- **Success Rate:** $SUCCESS_RATE%"
+            echo "- **Execution Time:** $DURATION seconds"
             echo ""
             echo "## Status"
-            if [ $FAILED_TESTS -eq 0 ]; then
-              echo "✅ **ALL TESTS PASSED**"
-            else
-              echo "❌ **$FAILED_TESTS TEST(S) FAILED**"
-            fi
-            echo ""
-            echo "---"
-            echo "*Generated by Professional Test Runner*"
           } > ./reports/${{ inputs.run_id }}/summary.md
+          
+          # Append status based on results
+          if [ "$FAILED_TESTS" -eq 0 ] && [ "$TOTAL_TESTS" -gt 0 ]; then
+            echo "✅ **ALL TESTS PASSED**" >> ./reports/${{ inputs.run_id }}/summary.md
+          elif [ "$TOTAL_TESTS" -eq 0 ]; then
+            echo "⚠️ **NO TESTS WERE EXECUTED**" >> ./reports/${{ inputs.run_id }}/summary.md
+          else
+            echo "❌ **$FAILED_TESTS TEST(S) FAILED**" >> ./reports/${{ inputs.run_id }}/summary.md
+          fi
+          
+          echo "" >> ./reports/${{ inputs.run_id }}/summary.md
+          echo "---" >> ./reports/${{ inputs.run_id }}/summary.md
+          echo "*Generated by Professional Test Runner*" >> ./reports/${{ inputs.run_id }}/summary.md
           
           echo "✅ Summary report created!"
       
-      - name: 📦 Package Final Report
-        run: |
-          echo "📦 Packaging final report..."
-          
-          # Copy any additional files from test results
-          if [ -d "./downloaded-results/test-results/${{ inputs.run_id }}" ]; then
-            cp -r ./downloaded-results/test-results/${{ inputs.run_id }}/* ./reports/${{ inputs.run_id }}/ 2>/dev/null || true
-          fi
-          
-          # Create a manifest file
-          {
-            echo "Report Package for Run: ${{ inputs.run_id }}"
-            echo "========================================"
-            echo ""
-            echo "Files included:"
-            echo "1. dashboard.html - Interactive dashboard"
-            echo "2. summary.md - Executive summary"
-            echo "3. statistics.json - Raw statistics"
-            echo "4. results.json - Detailed test results"
-            echo ""
-            echo "Generated: $(date)"
-          } > ./reports/${{ inputs.run_id }}/MANIFEST.txt
-      
       - name: 📤 Upload Final Report Package
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: final-report-${{ inputs.run_id }}
@@ -281,6 +257,7 @@ jobs:
           retention-days: 30
       
       - name: 📢 Create GitHub Actions Summary
+        if: always()
         run: |
           echo "## 🎉 Test Execution Complete!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -300,10 +277,13 @@ jobs:
           echo "- ❌ Failed: **$FAILED_TESTS**" >> $GITHUB_STEP_SUMMARY
           echo "- ⏭️ Skipped: **$SKIPPED_TESTS**" >> $GITHUB_STEP_SUMMARY
           echo "- 📈 Success Rate: **$SUCCESS_RATE%**" >> $GITHUB_STEP_SUMMARY
+          echo "- ⏱️ Duration: **$DURATION seconds**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [ $FAILED_TESTS -eq 0 ]; then
+          if [ "$FAILED_TESTS" -eq 0 ] && [ "$TOTAL_TESTS" -gt 0 ]; then
             echo "### 🎯 **STATUS: ALL TESTS PASSED** 🎯" >> $GITHUB_STEP_SUMMARY
+          elif [ "$TOTAL_TESTS" -eq 0 ]; then
+            echo "### ⚠️ **STATUS: NO TESTS EXECUTED**" >> $GITHUB_STEP_SUMMARY
           else
             echo "### ⚠️ **STATUS: $FAILED_TESTS TEST(S) FAILED**" >> $GITHUB_STEP_SUMMARY
           fi
