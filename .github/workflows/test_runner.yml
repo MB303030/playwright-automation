@@ -47,219 +47,52 @@ jobs:
           cache: 'npm'
       
       - name: 📦 Install dependencies
-        id: install_deps
         run: |
           echo "📦 Installing dependencies..."
           if [ -f "package.json" ]; then
-            echo "✅ Found package.json, installing dependencies..."
             npm ci
           else
-            echo "⚠️ No package.json found, creating a simple test structure..."
-            
-            # Create directories first
-            mkdir -p tests/web/Smoke
-            mkdir -p tests/web/Regression
-            mkdir -p tests/web/Sanity
-            
-            # Create a simple test file WITHOUT here-document
-            echo '// Sample test file' > tests/web/Smoke/sample.test.js
-            echo 'const { test, expect } = require("@playwright/test");' >> tests/web/Smoke/sample.test.js
-            echo '' >> tests/web/Smoke/sample.test.js
-            echo 'test("Sample Login Test", async ({ page }) => {' >> tests/web/Smoke/sample.test.js
-            echo '  console.log("Running sample test...");' >> tests/web/Smoke/sample.test.js
-            echo '  expect(1 + 1).toBe(2);' >> tests/web/Smoke/sample.test.js
-            echo '});' >> tests/web/Smoke/sample.test.js
-            echo '' >> tests/web/Smoke/sample.test.js
-            echo 'test("Sample Dashboard Test", async ({ page }) => {' >> tests/web/Smoke/sample.test.js
-            echo '  console.log("Running dashboard test...");' >> tests/web/Smoke/sample.test.js
-            echo '  expect(true).toBe(true);' >> tests/web/Smoke/sample.test.js
-            echo '});' >> tests/web/Smoke/sample.test.js
-            
-            # Create package.json WITHOUT here-document
-            echo '{' > package.json
-            echo '  "name": "test-project",' >> package.json
-            echo '  "version": "1.0.0",' >> package.json
-            echo '  "devDependencies": {' >> package.json
-            echo '    "@playwright/test": "^1.40.0"' >> package.json
-            echo '  },' >> package.json
-            echo '  "scripts": {' >> package.json
-            echo '    "test": "playwright test"' >> package.json
-            echo '  }' >> package.json
-            echo '}' >> package.json
-            
-            npm install
+            echo "❌ Error: No package.json found!"
+            exit 1
           fi
-          
-          echo "✅ Dependencies installed successfully!"
       
-      - name: 🏃 Execute Real Tests
-        id: execute
+      - name: 🔧 Install Playwright Browsers
         run: |
-          echo "🚀 Running tests for: ${{ inputs.test_type }}"
+          echo "🔧 Installing Playwright browsers..."
+          npx playwright install --with-deps
+      
+      - name: 🧪 Run Playwright Tests
+        id: run_playwright
+        continue-on-error: true
+        run: |
+          echo "🚀 Running Playwright tests..."
           echo "📂 Test path: ${{ inputs.test_path }}"
           echo "🌐 Browser: ${{ inputs.browser }}"
-          echo "🆔 Run ID: ${{ inputs.run_id }}"
           
-          START_TIME=$(date +%s)
+          # Create output directory for this run
+          OUTPUT_DIR="./playwright-report/${{ inputs.run_id }}"
+          mkdir -p $OUTPUT_DIR
           
-          # Create test results directory
-          mkdir -p ./test-results/${{ inputs.run_id }}
-          
-          # Check if Playwright is available
-          if npx playwright --version 2>/dev/null; then
-            echo "✅ Playwright is available"
-            
-            # Create playwright.config.js if it doesn't exist
-            if [ ! -f "playwright.config.js" ]; then
-              echo '// Playwright configuration' > playwright.config.js
-              echo 'const { defineConfig, devices } = require("@playwright/test");' >> playwright.config.js
-              echo '' >> playwright.config.js
-              echo 'module.exports = defineConfig({' >> playwright.config.js
-              echo '  testDir: "./tests",' >> playwright.config.js
-              echo '  fullyParallel: true,' >> playwright.config.js
-              echo '  forbidOnly: !!process.env.CI,' >> playwright.config.js
-              echo '  retries: process.env.CI ? 2 : 0,' >> playwright.config.js
-              echo '  workers: process.env.CI ? 1 : undefined,' >> playwright.config.js
-              echo '  reporter: [' >> playwright.config.js
-              echo '    ["html", { outputFolder: "playwright-report" }],' >> playwright.config.js
-              echo '    ["json", { outputFile: "test-results.json" }]' >> playwright.config.js
-              echo '  ],' >> playwright.config.js
-              echo '  use: {' >> playwright.config.js
-              echo '    trace: "on-first-retry",' >> playwright.config.js
-              echo '    video: "on-first-retry",' >> playwright.config.js
-              echo '    screenshot: "on",' >> playwright.config.js
-              echo '  },' >> playwright.config.js
-              echo '  projects: [' >> playwright.config.js
-              echo '    {' >> playwright.config.js
-              echo '      name: "chromium",' >> playwright.config.js
-              echo '      use: { ...devices["Desktop Chrome"] },' >> playwright.config.js
-              echo '    },' >> playwright.config.js
-              echo '    {' >> playwright.config.js
-              echo '      name: "firefox",' >> playwright.config.js
-              echo '      use: { ...devices["Desktop Firefox"] },' >> playwright.config.js
-              echo '    },' >> playwright.config.js
-              echo '    {' >> playwright.config.js
-              echo '      name: "webkit",' >> playwright.config.js
-              echo '      use: { ...devices["Desktop Safari"] },' >> playwright.config.js
-              echo '    },' >> playwright.config.js
-              echo '  ],' >> playwright.config.js
-              echo '});' >> playwright.config.js
-            fi
-            
-            # Install browser
-            echo "🔧 Installing ${{ inputs.browser }} browser..."
-            npx playwright install ${{ inputs.browser }} --with-deps 2>/dev/null || echo "Browser already installed"
-            
-            # Run tests
-            echo "📝 Running tests..."
-            
-            # Build test command
-            TEST_CMD="npx playwright test"
-            
-            # Add test path if specified
-            if [ "${{ inputs.test_path }}" != "." ] && [ "${{ inputs.test_path }}" != "./tests/web" ]; then
-              if [ -d "${{ inputs.test_path }}" ] || [ -f "${{ inputs.test_path }}" ]; then
-                TEST_CMD="$TEST_CMD ${{ inputs.test_path }}"
-              fi
-            fi
-            
-            # Add browser project
-            TEST_CMD="$TEST_CMD --project=${{ inputs.browser }}"
-            
-            # Add retries
-            TEST_CMD="$TEST_CMD --retries=1"
-            
-            echo "🔨 Command: $TEST_CMD"
-            
-            # Execute tests (continue on error)
-            set +e
-            eval $TEST_CMD
-            TEST_EXIT_CODE=$?
-            set -e
-            
-            echo "📊 Test exit code: $TEST_EXIT_CODE"
-            
-            # Check for test results
-            if [ -f "test-results.json" ]; then
-              echo "✅ Found test results file"
-              mv test-results.json ./test-results/${{ inputs.run_id }}/ 2>/dev/null || true
-            else
-              echo "⚠️ No test results file found, creating sample results"
-            fi
-            
-          else
-            echo "⚠️ Playwright not available, creating sample results"
-            TEST_EXIT_CODE=0
-          fi
-          
-          # Create sample results for demonstration (always create some results)
-          echo "📊 Creating test results..."
-          
-          # Create results.json
-          echo '{' > ./test-results/${{ inputs.run_id }}/results.json
-          echo '  "total": 8,' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '  "passed": 6,' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '  "failed": 1,' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '  "skipped": 1,' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '  "duration": 15.2,' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '  "suites": [' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '    {' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '      "title": "Web Tests",' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '      "tests": [' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '        {"title": "Login Test", "status": "passed", "duration": 2.3},' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '        {"title": "Dashboard Test", "status": "passed", "duration": 1.8},' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '        {"title": "Search Test", "status": "passed", "duration": 3.2},' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '        {"title": "Profile Test", "status": "failed", "duration": 2.1, "error": "Timeout: 5000ms exceeded"},' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '        {"title": "API Test", "status": "passed", "duration": 3.1},' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '        {"title": "Mobile Test", "status": "skipped", "duration": 0}' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '      ]' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '    }' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '  ]' >> ./test-results/${{ inputs.run_id }}/results.json
-          echo '}' >> ./test-results/${{ inputs.run_id }}/results.json
-          
-          END_TIME=$(date +%s)
-          DURATION=$((END_TIME - START_TIME))
-          
-          # Calculate statistics
-          TOTAL_TESTS=8
-          PASSED_TESTS=6
-          FAILED_TESTS=1
-          SKIPPED_TESTS=1
-          
-          if [ "$TOTAL_TESTS" -gt 0 ]; then
-            SUCCESS_RATE=$((PASSED_TESTS * 100 / TOTAL_TESTS))
-          else
-            SUCCESS_RATE=0
-          fi
-          
-          echo "⏱️ Execution time: $DURATION seconds"
-          echo "📊 Results: $PASSED_TESTS passed, $FAILED_TESTS failed, $SKIPPED_TESTS skipped"
-          echo "📈 Success rate: $SUCCESS_RATE%"
-          
-          # Create statistics.json
-          echo '{' > ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "total_tests": '$TOTAL_TESTS',' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "passed_tests": '$PASSED_TESTS',' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "failed_tests": '$FAILED_TESTS',' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "skipped_tests": '$SKIPPED_TESTS',' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "duration": '$DURATION',' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "success_rate": '$SUCCESS_RATE',' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "test_type": "'"${{ inputs.test_type }}"'",' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "test_suite": "'"${{ inputs.test_suite }}"'",' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "browser": "'"${{ inputs.browser }}"'",' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "environment": "'"${{ inputs.environment }}"'",' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "priority": "'"${{ inputs.priority }}"'",' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "run_id": "'"${{ inputs.run_id }}"'",' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '  "exit_code": '$TEST_EXIT_CODE'' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          echo '}' >> ./test-results/${{ inputs.run_id }}/statistics.json
-          
-          echo "exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
-          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+          # Run Playwright with native HTML reporter
+          npx playwright test \
+            "${{ inputs.test_path }}" \
+            --project="${{ inputs.browser }}" \
+            --reporter=html,line \
+            --output="$OUTPUT_DIR" \
+            --retries=1
       
-      - name: 📦 Upload Test Results
+      - name: 📦 Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ inputs.run_id }}
+          path: ./playwright-report/${{ inputs.run_id }}
+          retention-days: 7
+      
+      - name: 📦 Upload Test Results (JSON)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results-${{ inputs.run_id }}
-          path: ./test-results/${{ inputs.run_id }}
+          path: ./test-results.json
           retention-days: 7
