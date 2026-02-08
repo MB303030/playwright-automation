@@ -1,0 +1,118 @@
+name: Report Generator main
+
+on:
+  workflow_call:
+    inputs:
+      test_type:
+        required: true
+        type: string
+      test_suite:
+        required: true
+        type: string
+      browser:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      priority:
+        required: true
+        type: string
+      run_id:
+        required: true
+        type: string
+      total_tests:
+        required: true
+        type: number
+      passed_tests:
+        required: true
+        type: number
+      failed_tests:
+        required: true
+        type: number
+      skipped_tests:
+        required: true
+        type: number
+      duration:
+        required: true
+        type: number
+      success_rate:
+        required: true
+        type: number
+      exit_code:
+        required: true
+        type: number
+      browser_icon:
+        required: false
+        type: string
+        default: 'fab fa-chrome'
+      browser_color:
+        required: false
+        type: string
+        default: 'text-green-500'
+
+jobs:
+  generate-reports:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: 📦 Download Test Results
+        uses: actions/download-artifact@v4
+        with:
+          name: raw-results-${{ inputs.run_id }}
+      
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: 📦 Install Dependencies
+        run: npm ci
+      
+      - name: 📈 Generate Allure Report
+        if: always()
+        run: |
+          if [ -d "allure-results" ]; then
+            npx allure generate allure-results --clean -o ./reports/${{ inputs.run_id }}/allure-report
+          fi
+      
+      - name: 🎨 Create Dashboard
+        if: always()
+        run: |
+          mkdir -p ./reports/${{ inputs.run_id }}
+          
+          # Create dashboard HTML with placeholders
+          # (Copy your dashboard template here, but simplified)
+          # This can be moved to a separate template file
+          
+          cat > ./reports/${{ inputs.run_id }}/dashboard.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Test Dashboard - ${{ inputs.run_id }}</title>
+              <!-- Add your CSS/JS here -->
+          </head>
+          <body>
+              <h1>Test Execution Dashboard</h1>
+              <!-- Template with placeholders -->
+          </body>
+          </html>
+          EOF
+      
+      - name: 📤 Upload Final Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-report-${{ inputs.run_id }}
+          path: ./reports/${{ inputs.run_id }}
+          retention-days: 90
+      
+      - name: 📢 Create Summary
+        if: always()
+        run: |
+          echo "## Test Execution Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID:** ${{ inputs.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Success Rate:** ${{ inputs.success_rate }}%" >> $GITHUB_STEP_SUMMARY
+          echo "**Duration:** ${{ inputs.duration }} seconds" >> $GITHUB_STEP_SUMMARY
